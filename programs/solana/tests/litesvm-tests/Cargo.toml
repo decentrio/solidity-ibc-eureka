@@ -1,0 +1,39 @@
+[package]
+name = "ibc-solana-integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# IBC programs - needed for types and program IDs
+ics07-tendermint = { path = "../../programs/ics07-tendermint" }
+ics26-router = { path = "../../programs/ics26-router" }
+
+# Solana dependencies
+solana-program = { workspace = true }
+solana-sdk = { workspace = true, features = ["full"] }
+anchor-lang = { workspace = true }
+
+# Test framework
+mollusk-svm = { workspace = true }
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+borsh = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+# Additional test utilities
+hex = "0.4"
+
+[lib]
+name = "ibc_solana_litesvm_tests"
+path = "src/lib.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration_test.rs"
