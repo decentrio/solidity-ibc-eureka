@@ -15,6 +15,7 @@ import { ISP1ICS07Tendermint } from "./ISP1ICS07Tendermint.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
 import { ISP1Verifier } from "@sp1-contracts/ISP1Verifier.sol";
 
+import { IVerifier } from "../interfaces/IVerifier.sol";
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
 import { TransientSlot } from "@openzeppelin-contracts/utils/TransientSlot.sol";
@@ -32,14 +33,14 @@ contract SP1ICS07Tendermint is
 {
     using TransientSlot for *;
 
-    /// @inheritdoc ISP1ICS07Tendermint
-    bytes32 public immutable UPDATE_CLIENT_PROGRAM_VKEY;
-    /// @inheritdoc ISP1ICS07Tendermint
-    bytes32 public immutable MEMBERSHIP_PROGRAM_VKEY;
-    /// @inheritdoc ISP1ICS07Tendermint
-    bytes32 public immutable UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY;
-    /// @inheritdoc ISP1ICS07Tendermint
-    bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable UPDATE_CLIENT_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable MEMBERSHIP_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
     ISP1Verifier public immutable VERIFIER;
 
