@@ -53,15 +53,20 @@ interface IUpdateClientMsgs {
 
     struct ValidatorInfo {
         bytes valAddress;
-        bytes pubKey;
+        bytes32 pubKey;
         uint64 votingPower;
         int64 proposerPriority;
+    }
+
+    struct SimpleValidator {
+        bytes32 pubKey;
+        uint64 votingPower;
     }
 
     struct BlockHeader {
         uint32 version;
         string chainId;
-        IICS02ClientMsgs.Height height;
+        uint64 height;
         uint128 time;
         bool hasLastBlockId;
         BlockId lastBlockId;
