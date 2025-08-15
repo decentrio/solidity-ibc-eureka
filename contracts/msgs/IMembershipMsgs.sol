@@ -5,10 +5,11 @@ interface IMembershipMsgs {
     // Struct to represent a key-value pair
     struct KVPair {
         bytes[] path;
-        bytes value;
+        bytes32 value;
     }
     
     struct ProofSpec {
+        SpecType specType;
         bool hasLeafSpec;
         LeafOp leafOp;
         bool hasInnerSpec;
@@ -40,6 +41,12 @@ interface IMembershipMsgs {
         HashOp hashOp;
     }
 
+    struct Padding {
+        uint32 minPrefix;
+        uint32 maxPrefix;
+        uint256 suffix;
+    }
+
     struct InnerOp {
         HashOp hashOp;
         bytes prefix;
@@ -51,7 +58,11 @@ interface IMembershipMsgs {
         SHA256,
         KECCAK256
     }
-    
+
+    enum SpecType {
+        IAVL,
+        TENDERMINT
+    }    
     struct MerkleProof {
         CommitmentProof[] proofs;
     }
@@ -70,7 +81,7 @@ interface IMembershipMsgs {
 
     struct ExistenceProof {
         bytes key;
-        bytes value;
+        bytes32 value;
         LeafOp leaf;
         InnerOp[] path;
     }

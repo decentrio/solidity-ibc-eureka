@@ -32,8 +32,8 @@ interface IMisbehaviourMsgs {
     }
 
     struct Misbehaviour {
-        string client_id;
-        Header header1;
-        Header header2;
+        IICS07TendermintMsgs.ChainId client_id;
+        IICS07TendermintMsgs.Header header1;
+        IICS07TendermintMsgs.Header header2;
     }
 }
