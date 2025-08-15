@@ -50,4 +50,19 @@ interface IICS07TendermintMsgs {
         Groth16,
         Plonk
     }
+
+    struct ValSet {
+
+    }
+
+    struct Header {
+        pub signed_header: SignedHeader, // contains the commitment root
+        pub validator_set: ValidatorSet, // the validator set that signed Header
+        IICS02ClientMsgs.Height trustedHeight, // the height of a trusted header seen by client less than or equal to Header
+        pub trusted_next_validator_set: ValidatorSet, // the last trusted validator set at trusted height
+    }
+
+    struct SignedHeader {
+
+    } 
 }

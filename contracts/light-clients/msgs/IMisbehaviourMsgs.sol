@@ -30,4 +30,10 @@ interface IMisbehaviourMsgs {
         IICS07TendermintMsgs.ConsensusState trustedConsensusState1;
         IICS07TendermintMsgs.ConsensusState trustedConsensusState2;
     }
+
+    struct Misbehaviour {
+        string client_id;
+        Header header1;
+        Header header2;
+    }
 }
