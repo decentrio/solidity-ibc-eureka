@@ -64,7 +64,7 @@ interface IUpdateClientMsgs {
     }
 
     struct BlockHeader {
-        uint32 version;
+        Version version;
         string chainId;
         uint64 height;
         uint128 time;
@@ -83,6 +83,11 @@ interface IUpdateClientMsgs {
         bool hasEvidenceHash;
         bytes32 evidenceHash;
         bytes proposerAddress;
+    }
+
+    struct Version {
+        uint64 blockVersion;
+        uint64 appVersion;
     }
 
     struct BlockCommit {

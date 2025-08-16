@@ -135,7 +135,10 @@ contract UpdateClient is IUpdateClient {
         }
 
         // Ensure the header matches the commit
-        // TODO:
+        bytes32 headerHash = hashHeader(untrustedState.signedHeader.header);
+        if (headerHash != untrustedState.signedHeader.commit.blockId.hashData) {
+            revert("invalid block: header hash mismatch");
+        }
 
         // Additional implementation specific validation
         validateCommit(untrustedState.signedHeader, untrustedState.validators);
@@ -297,7 +300,7 @@ contract UpdateClient is IUpdateClient {
     ) pure internal returns (bytes32) {
         bytes[] memory validatorBytes = new bytes[](valset.validators.length);
         for (uint256 i = 0; i < valset.validators.length; i++) {
-            bytes memory validatorHash = encodeToVec(
+            bytes memory validatorHash = encodeValidator(
                 IUpdateClientMsgs.SimpleValidator({
                     pubKey: valset.validators[i].pubKey,
                     votingPower: valset.validators[i].votingPower
@@ -309,6 +312,64 @@ contract UpdateClient is IUpdateClient {
 
         bytes32 root = merkleHash(validatorBytes);
         return root;
+    }
+
+    function hashHeader(
+        IUpdateClientMsgs.BlockHeader memory header
+    ) pure internal returns (bytes32) {
+        uint256 fieldCount = 9;
+        
+        if (header.hasLastBlockId) fieldCount++;
+        if (header.hasLastCommitHash) fieldCount++;
+        if (header.hasDataHash) fieldCount++;
+        if (header.hasLastResultsHash) fieldCount++;
+        if (header.hasEvidenceHash) fieldCount++;
+        
+        bytes[] memory headerBytes = new bytes[](fieldCount);
+        uint256 index = 0;
+        
+        // Always present fields
+        headerBytes[index++] = encodeVersion(header.version);
+        headerBytes[index++] = encodeString(header.chainId);
+        headerBytes[index++] = encodeVarint(uint256(header.height));
+        headerBytes[index++] = encodeVarint(uint256(header.time));
+        
+        // Conditional fields
+        if (header.hasLastBlockId) {
+            headerBytes[index++] = encodeBlockId(header.lastBlockId);
+        }
+        
+        if (header.hasLastCommitHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastCommitHash);
+        }
+        
+        if (header.hasDataHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.dataHash);
+        }
+        
+        // Always present fields
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.validatorsHash);
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.nextValidatorsHash);
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.consensusHash);
+        
+        // appHash is always present (no has flag in struct)
+        uint256 appHashLength = header.appHash.length;
+        headerBytes[index++] = abi.encodePacked(encodeVarint(appHashLength), header.appHash);
+        
+        // Conditional fields
+        if (header.hasLastResultsHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastResultsHash);
+        }
+        
+        if (header.hasEvidenceHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.evidenceHash);
+        }
+        
+        // proposerAddress is always present (no has flag in struct)
+        uint256 proposerAddressLength = header.proposerAddress.length;
+        headerBytes[index++] = abi.encodePacked(encodeVarint(proposerAddressLength), header.proposerAddress);
+        
+        return merkleHash(headerBytes);
     }
 
     function merkleHash(
@@ -456,7 +517,19 @@ contract UpdateClient is IUpdateClient {
         return result;
     }
 
-    function encodeToVec(
+    function encodeString(string memory value) internal pure returns (bytes memory) {
+        bytes memory valueBytes = bytes(value);
+        uint256 length = valueBytes.length;
+        
+        // Encode length as varint
+        bytes memory lengthBytes = encodeVarint(length);
+
+        // Concatenate length and value
+        return abi.encodePacked(lengthBytes, valueBytes);
+    }
+
+
+    function encodeValidator(
         IUpdateClientMsgs.SimpleValidator memory validator
     ) internal pure returns (bytes memory) {
         bytes memory encoded = new bytes(0);
@@ -475,4 +548,49 @@ contract UpdateClient is IUpdateClient {
         return encoded;
     }
 
+    function encodeVersion(IUpdateClientMsgs.Version memory version) internal pure returns (bytes memory) {
+        bytes memory encoded = new bytes(0);
+        
+        // Field 1: blockVersion (tag = 1, wire type = 0 for varint)
+        encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
+        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.blockVersion)));
+        
+        // Field 2: appVersion (tag = 2, wire type = 0 for varint)
+        encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
+        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.appVersion)));
+        
+        return encoded;
+    }
+
+    function encodeBlockId(IUpdateClientMsgs.BlockId memory blockId) internal pure returns (bytes memory) {
+        bytes memory encoded = new bytes(0);
+        
+        // Field 1: hashData (tag = 1, wire type = 2 for bytes)
+        encoded = abi.encodePacked(encoded, uint8(0x0A)); // tag: (1 << 3) | 2
+        encoded = abi.encodePacked(encoded, uint8(32)); // 32 bytes length
+        encoded = abi.encodePacked(encoded, blockId.hashData);
+        
+        // Field 2: partSetHeader (tag = 2, wire type = 2 for message)
+        bytes memory partSetHeaderEncoded = encodePartSetHeader(blockId.partSetHeader);
+        encoded = abi.encodePacked(encoded, uint8(0x12)); // tag: (2 << 3) | 2
+        encoded = abi.encodePacked(encoded, encodeVarint(partSetHeaderEncoded.length));
+        encoded = abi.encodePacked(encoded, partSetHeaderEncoded);
+        
+        return encoded;
+    }
+
+    function encodePartSetHeader(IUpdateClientMsgs.PartSetHeader memory partSetHeader) internal pure returns (bytes memory) {
+        bytes memory encoded = new bytes(0);
+        
+        // Field 1: total (tag = 1, wire type = 0 for varint)
+        encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
+        encoded = abi.encodePacked(encoded, encodeVarint(uint256(partSetHeader.total)));
+        
+        // Field 2: hashData (tag = 2, wire type = 2 for bytes)
+        encoded = abi.encodePacked(encoded, uint8(0x12)); // tag: (2 << 3) | 2
+        encoded = abi.encodePacked(encoded, uint8(32)); // 32 bytes length
+        encoded = abi.encodePacked(encoded, partSetHeader.hashData);
+        
+        return encoded;
+    }
 }
