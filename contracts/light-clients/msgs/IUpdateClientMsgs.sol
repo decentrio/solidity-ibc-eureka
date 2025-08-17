@@ -64,7 +64,7 @@ interface IUpdateClientMsgs {
     }
 
     struct BlockHeader {
-        uint32 version;
+        Version version;
         string chainId;
         uint64 height;
         uint128 time;
@@ -83,6 +83,11 @@ interface IUpdateClientMsgs {
         bool hasEvidenceHash;
         bytes32 evidenceHash;
         bytes proposerAddress;
+    }
+
+    struct Version {
+        uint64 blockVersion;
+        uint64 appVersion;
     }
 
     struct BlockCommit {
@@ -140,9 +145,32 @@ interface IUpdateClientMsgs {
         uint64 revisionHeight;
     }
 
-   struct ConsensusState {
+    struct ConsensusState {
         uint128 timestamp;
         bytes32 root;
         bytes32 nextValidatorsHash;
+    }
+
+    struct TrustedBlockState {
+        ChainId chainId;
+        uint128 headerTime;
+        uint64 height;
+        ValidatorSet nextValidators;
+        bytes32 nextValidatorsHash;
+    }
+
+    struct UnTrustedBlockState {
+        SignedHeader signedHeader;
+        ValidatorSet validators;
+    }
+
+    enum Verdict {
+        /// Verification succeeded, the block is valid.
+        SUCCESS,
+        /// The minimum voting power threshold is not reached,
+        /// the block cannot be trusted yet.
+        NOT_ENOUGH_TRUST,
+        /// Verification failed, the block is invalid.
+        INVALID
     }
 }
