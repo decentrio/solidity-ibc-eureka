@@ -145,12 +145,6 @@ interface IUpdateClientMsgs {
         uint64 revisionHeight;
     }
 
-    struct ConsensusState {
-        uint128 timestamp;
-        bytes32 root;
-        bytes32 nextValidatorsHash;
-    }
-
     struct TrustedBlockState {
         ChainId chainId;
         uint128 headerTime;
