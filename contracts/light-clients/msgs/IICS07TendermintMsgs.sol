@@ -159,6 +159,102 @@ interface IICS07TendermintMsgs {
         uint64 revisionHeight;
     }
 
+    struct TrustedBlockState {
+        ChainId chainId;
+        uint128 headerTime;
+        uint64 height;
+        ValidatorSet nextValidators;
+        bytes32 nextValidatorsHash;
+    }
+
+    struct UnTrustedBlockState {
+        SignedHeader signedHeader;
+        ValidatorSet validators;
+    }
+
+    struct VotingPowerTally {
+        /// Total voting power
+        uint64 total;
+        /// Tallied voting power
+        uint64 tallied;
+        /// Trust threshold for voting power
+        TrustThreshold trustThreshold;
+    }
+
+    struct NonAbsentCommitVote {
+        SignedVote signedVote;
+        /// Flag indicating whether the signature has already been verified.
+        verified: bool;
+    }
+
+    struct NonAbsentCommitVotes {
+        /// Votes sorted by validator address.
+        NonAbsentCommitVote[] votes,
+        /// Internal buffer for storing sign_bytes.
+        ///
+        /// The buffer is reused for each canonical vote so that we allocate it
+        /// once.
+        bytes32 signBytes,
+    }
+
+    struct PartSetHeader {
+        /// Number of parts in this block
+        uint32 total;
+
+        /// Hash of the parts set header,
+        bytes32 hash;
+    }
+
+    struct BlockId {
+        bytes32 hash;
+
+        PartSetHeader partSetHeader;
+    }
+
+    struct CanonicalVote {
+        /// Type of vote (prevote or precommit)
+        VoteType voteType;
+
+        /// Block height
+        uint64 height;
+
+        /// Round
+        uint64 round;
+
+        /// Block ID
+        BlockId blockId;
+
+        /// Timestamp
+        uint timestamp,
+
+        /// Chain ID
+        ChainId chainId,
+    }
+
+    struct SignedVote {
+        CanonicalVote vote;
+        bytes validatorAddress,
+        bytes32 signature,
+    }
+
+    enum VoteType {
+        /// Votes for blocks which validators observe are valid for a given round
+        Prevote = 1,
+
+        /// Votes to commit to a particular block for a given round
+        Precommit = 2,
+    }
+
+    enum Verdict {
+        /// Verification succeeded, the block is valid.
+        SUCCESS,
+        /// The minimum voting power threshold is not reached,
+        /// the block cannot be trusted yet.
+        NOT_ENOUGH_TRUST,
+        /// Verification failed, the block is invalid.
+        INVALID
+    }
+
 
     function encodeToVec(
         SimpleValidator memory validator
@@ -179,6 +275,20 @@ interface IICS07TendermintMsgs {
         return encoded;
     }
 
+    function tallyVote(
+        VotingPowerTally power,
+        uint64 votingPower,
+    ) pure returns (VotingPowerTally) {
+        power.tallied += votingPower;
+        require(power.tallied <= power.total, "tallied should be less than total voting power")
+    }
+
+    function checkTally(
+        VotingPowerTally power,
+    ) pure returns (bool) {
+        power.tallied * power.trustThreshold.denominator > power.totalVotingPower * power.trustThreshold.numerator
+    }
+
     function hashValSet(
         ValidatorSet memory valset
     ) pure internal returns (bytes32) {
@@ -194,8 +304,86 @@ interface IICS07TendermintMsgs {
 
         }
 
-
         return bytes32(0);
+    }
+
+    function hashHeader(
+        BlockHeader memory header
+    ) pure internal returns (bytes32) {
+        uint256 fieldCount = 9;
+        
+        if (header.hasLastBlockId) fieldCount++;
+        if (header.hasLastCommitHash) fieldCount++;
+        if (header.hasDataHash) fieldCount++;
+        if (header.hasLastResultsHash) fieldCount++;
+        if (header.hasEvidenceHash) fieldCount++;
+        
+        bytes[] memory headerBytes = new bytes[](fieldCount);
+        uint256 index = 0;
+        
+        // Always present fields
+        headerBytes[index++] = encodeVersion(header.version);
+        headerBytes[index++] = encodeString(header.chainId);
+        headerBytes[index++] = encodeVarint(uint256(header.height));
+        headerBytes[index++] = encodeVarint(uint256(header.time));
+        
+        // Conditional fields
+        if (header.hasLastBlockId) {
+            headerBytes[index++] = encodeBlockId(header.lastBlockId);
+        }
+        
+        if (header.hasLastCommitHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastCommitHash);
+        }
+        
+        if (header.hasDataHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.dataHash);
+        }
+        
+        // Always present fields
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.validatorsHash);
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.nextValidatorsHash);
+        headerBytes[index++] = abi.encodePacked(uint8(32), header.consensusHash);
+        
+        // appHash is always present (no has flag in struct)
+        uint256 appHashLength = header.appHash.length;
+        headerBytes[index++] = abi.encodePacked(encodeVarint(appHashLength), header.appHash);
+        
+        // Conditional fields
+        if (header.hasLastResultsHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastResultsHash);
+        }
+        
+        if (header.hasEvidenceHash) {
+            headerBytes[index++] = abi.encodePacked(uint8(32), header.evidenceHash);
+        }
+        
+        // proposerAddress is always present (no has flag in struct)
+        uint256 proposerAddressLength = header.proposerAddress.length;
+        headerBytes[index++] = abi.encodePacked(encodeVarint(proposerAddressLength), header.proposerAddress);
+        
+        return merkleHash(headerBytes);
+    }
+
+    function merkleHash(
+        bytes[] memory bytesArray
+    ) internal pure returns (bytes32) {
+        if (bytesArray.length == 0) {
+            return bytes32(0);
+        }
+
+        // tmhash(0x00 || leaf)
+        // Pre and post-conditions: the hasher is in the reset state
+        // before and after calling this function.
+        if (bytesArray.length == 1) {
+            return sha256(abi.encodePacked([0x00], bytesArray[0]));
+        }
+
+        uint256 split = nextPowerOfTwo(bytesArray.length) / 2;
+        bytes32 left = merkleHash(getSlice(bytesArray, 0, split));
+        bytes32 right = merkleHash(getSlice(bytesArray, split, bytesArray.length));
+
+        return sha256(abi.encodePacked([0x01], left, right));
     }
 
     function getChainId(string memory id) pure internal returns (ChainId memory) {

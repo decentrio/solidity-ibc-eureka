@@ -172,4 +172,35 @@ contract Misbehavior {
             })
         }
     }
+
+    function _verifyValidatorSets(IICS07TendermintMsgs.UntrustedBlockState untrusted) IICS07TendermintMsgs.Verdict {
+        // Ensure the header validator hashes match the given validators
+        verdict!(self.predicates.validator_sets_match(
+            untrusted.validators,
+            untrusted.signed_header.header.validators_hash,
+        ));
+
+        // Ensure the header next validator hashes match the given next validators
+        if let Some(untrusted_next_validators) = untrusted.next_validators {
+            verdict!(self.predicates.next_validators_match(
+                untrusted_next_validators,
+                untrusted.signed_header.header.next_validators_hash,
+            ));
+        }
+
+        // Ensure the header matches the commit
+        verdict!(self.predicates.header_matches_commit(
+            &untrusted.signed_header.header,
+            untrusted.signed_header.commit.block_id.hash,
+        ));
+
+        // Additional implementation specific validation
+        verdict!(self.predicates.valid_commit(
+            untrusted.signed_header,
+            untrusted.validators,
+            &self.commit_validator,
+        ));
+
+        Verdict::Success
+    }
 }
