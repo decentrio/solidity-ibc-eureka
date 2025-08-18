@@ -1,21 +1,47 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"math"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
+
+	"github.com/cometbft/cometbft/p2p"
+	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	commettypes "github.com/cometbft/cometbft/types"
+	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
+const MAX_TOTAL_VOTING_POWER = math.MaxInt64 / 8
 const (
 	flagOnlyOnce       = "only-once"
 	flagPrivateCluster = "private-cluster"
 	flagProofType      = "proof-type"
+	flagOutput         = "output"
+	flagOutputPath     = "output-path"
+	flagTrustLevel     = "trust-level"
+	flagTrustingPeriod = "trusting-period"
+	flagTrustedBlock   = "trusted-block"
 )
+
+type LightBlock struct {
+	SignedHeader commettypes.SignedHeader
+	ValSet       commettypes.ValidatorSet
+	NextValSet   commettypes.ValidatorSet
+	PeerId       p2p.ID
+	BlockHeight  int64
+}
 
 func main() {
 	zLogger, _ := zap.NewProduction(zap.AddStacktrace(zap.DPanicLevel))
@@ -60,13 +86,103 @@ func Start(logger *zap.Logger) *cobra.Command {
 }
 
 func Genesis(logger *zap.Logger) *cobra.Command {
-	cmd := &cobra.Command{}
+	cmd := &cobra.Command{
+		Use:   "genesis",
+		Short: "genesis",
+		Args:  cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := godotenv.Load()
+			if err != nil {
+				return fmt.Errorf("error loading .env file: %v", err)
+			}
+
+			// Read RPC endpoint from environment variable
+			rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+			if rpcEndpoint == "" {
+				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			}
+			client, err := rpchttp.New(rpcEndpoint, "/websocket")
+			if err != nil {
+				return fmt.Errorf("failed to create RPC client: %w", err)
+			}
+
+			trustedBlock, err := cmd.Flags().GetInt64(flagTrustedBlock)
+			if err != nil {
+				return fmt.Errorf("failed to get trusted block: %w", err)
+			}
+
+			status, err := client.Status(context.Background())
+			if err != nil {
+				return fmt.Errorf("failed to get status: %w", err)
+			}
+
+			if trustedBlock == 0 {
+				// get latest block
+				trustedBlock = status.SyncInfo.LatestBlockHeight
+			}
+
+			return nil
+		},
+	}
 	cmd.Flags().String(flagProofType, "groth16", "the type of proof to use (groth16, plonk)")
+	cmd.Flags().Int64(flagTrustedBlock, 0, "the trusted block height, if <height> is 0 then catch latest block")
+	cmd.Flags().String(flagOutput, "json", "the output structure for the genesis state (json, file)")
+	cmd.Flags().String(flagOutputPath, "./data/genesis.json", "the path to the output file for the genesis state")
+	cmd.Flags().String(flagTrustLevel, "2/3", "the trust level for the genesis state (e.g., 2/3)")
+	cmd.Flags().String(flagTrustingPeriod, "24", "the trusting period for the genesis state")
 	return cmd
 }
 
 func Fixtures(logger *zap.Logger) *cobra.Command {
-	cmd := &cobra.Command{}
+	fixturesCmd := &cobra.Command{
+		Use:   "fixtures",
+		Short: "fixtures",
+		Run: func(cmd *cobra.Command, args []string) {
+			cmd.Help()
+		},
+	}
+
+	fixturesCmd.AddCommand(
+		UpdateClientCmd(logger),
+		MembershipCmd(logger),
+		Misbehaviour(logger),
+	)
+
+	return fixturesCmd
+}
+
+// UpdateClientCmd creates a command to update the client
+func UpdateClientCmd(logger *zap.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update-client",
+		Short: "update client",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	}
+	return cmd
+}
+
+// MembershipCmd creates a command to manage membership
+func MembershipCmd(logger *zap.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "membership",
+		Short: "membership",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	}
+	return cmd
+}
+
+func Misbehaviour(logger *zap.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "misbehaviour",
+		Short: "misbehaviour",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	}
 	return cmd
 }
 
@@ -95,4 +211,91 @@ func parseTrustThreshold(value string) (tendermintContract.IICS07TendermintMsgsT
 		Numerator:   uint8(numerator),
 		Denominator: uint8(denominator),
 	}, nil
+}
+
+func getUnbondingTime(client *rpchttp.HTTP) (float64, error) {
+
+	// Query path for staking parameters
+	queryPath := "/cosmos.staking.v1beta1.Query/Params"
+
+	// Make ABCI query
+	result, err := client.ABCIQuery(context.Background(), queryPath, nil)
+	if err != nil {
+		return 0, fmt.Errorf("ABCI query failed: %w", err)
+	}
+
+	if result.Response.Code != 0 {
+		return 0, fmt.Errorf("query failed with code %d: %s", result.Response.Code, result.Response.Log)
+	}
+
+	// Create codec for decoding
+	interfaceRegistry := codectypes.NewInterfaceRegistry()
+	cdc := codec.NewProtoCodec(interfaceRegistry)
+
+	// Decode the response
+	var params stakingtypes.QueryParamsResponse
+	if err := cdc.Unmarshal(result.Response.Value, &params); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal params: %w", err)
+	}
+	return params.Params.UnbondingTime.Seconds(), nil
+}
+
+func getLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
+	status, err := client.Status(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	peerId := status.NodeInfo.ID()
+	commitResp, err := client.Commit(context.Background(), &height)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch trusted commit: %w", err)
+	}
+
+	signedHeader := commitResp.SignedHeader
+	proposerAddr := signedHeader.Header.ProposerAddress
+	var proposer *commettypes.Validator
+	validatorResp, err := client.Validators(context.Background(), &height, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch validators: %w", err)
+	}
+
+	for _, resp := range validatorResp.Validators {
+		if resp != nil {
+			if slices.Equal(resp.Address.Bytes(), proposerAddr.Bytes()) {
+				proposer = resp
+				break
+			}
+		}
+	}
+
+	valSet := commettypes.NewValidatorSet(validatorResp.Validators)
+	valSet.Proposer = proposer
+
+	nextHeight := height + 1
+	nextValidatorResp, err := client.Validators(context.Background(), &nextHeight, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch next validators: %w", err)
+	}
+
+	for _, resp := range nextValidatorResp.Validators {
+		if resp != nil {
+			if slices.Equal(resp.Address.Bytes(), proposerAddr.Bytes()) {
+				proposer = resp
+				break
+			}
+		}
+	}
+
+	nextValSet := commettypes.NewValidatorSet(nextValidatorResp.Validators)
+	nextValSet.Proposer = proposer
+
+	return &LightBlock{
+		SignedHeader: signedHeader,
+		ValSet:       *valSet,
+		NextValSet:   *nextValSet,
+		PeerId:       peerId,
+		BlockHeight:  height,
+	}, nil
+
 }
