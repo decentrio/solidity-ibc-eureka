@@ -6,6 +6,8 @@ import (
 	"math"
 	"slices"
 
+	updateClientContract "operator/bindings/UpdateClient"
+
 	"github.com/cometbft/cometbft/p2p"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	commettypes "github.com/cometbft/cometbft/types"
@@ -24,7 +26,31 @@ type LightBlock struct {
 	BlockHeight  int64
 }
 
-func getUnbondingTime(client *rpchttp.HTTP) (float64, error) {
+type SP1ICS07TendermintGenesis struct {
+	TrustedClientState    updateClientContract.IICS07TendermintMsgsClientState
+	TrustedConsensusState updateClientContract.IICS07TendermintMsgsConsensusState
+}
+
+type SupportedZkAlgorithm uint8
+
+const (
+	Groth16 SupportedZkAlgorithm = iota
+	Plonk
+)
+
+// String returns the string representation of the algorithm
+func (s SupportedZkAlgorithm) String() string {
+	switch s {
+	case Groth16:
+		return "Groth16"
+	case Plonk:
+		return "Plonk"
+	default:
+		return "Unknown"
+	}
+}
+
+func GetUnbondingTime(client *rpchttp.HTTP) (float64, error) {
 
 	// Query path for staking parameters
 	queryPath := "/cosmos.staking.v1beta1.Query/Params"
@@ -51,7 +77,7 @@ func getUnbondingTime(client *rpchttp.HTTP) (float64, error) {
 	return params.Params.UnbondingTime.Seconds(), nil
 }
 
-func getLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
+func GetLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
 	status, err := client.Status(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)

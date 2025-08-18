@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -11,9 +13,11 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
+	updateClientContract "operator/bindings/UpdateClient"
+	tendermintClient "operator/client"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 )
 
 const (
@@ -105,6 +109,104 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				trustedBlock = status.SyncInfo.LatestBlockHeight
 			}
 
+			trustedLightBlock, err := tendermintClient.GetLightBlock(client, trustedBlock)
+			if err != nil {
+				return fmt.Errorf("failed to get light block: %w", err)
+			}
+			_ = trustedLightBlock
+
+			unbondingPeriod, err := tendermintClient.GetUnbondingTime(client)
+			if err != nil {
+				return fmt.Errorf("failed to get unbonding time: %w", err)
+			}
+
+			trustingPeriod, err := cmd.Flags().GetUint32(flagTrustingPeriod)
+			if err != nil {
+				return fmt.Errorf("failed to get trusting period: %w", err)
+			}
+
+			if trustingPeriod == 0 {
+				trustingPeriod = uint32(unbondingPeriod * 2 / 3)
+			}
+
+			if trustingPeriod > uint32(unbondingPeriod) {
+				return fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
+			}
+
+			chainId := trustedLightBlock.SignedHeader.Header.ChainID
+			revision := clienttypes.ParseChainID(chainId)
+			trustLevel, err := cmd.Flags().GetString(flagTrustLevel)
+			if err != nil {
+				return fmt.Errorf("failed to get trust level from flag: %w", err)
+			}
+			trustThreshold, err := parseTrustThreshold(trustLevel)
+			if err != nil {
+				return fmt.Errorf("failed to parse trust level: %w", err)
+			}
+
+			proofType, err := cmd.Flags().GetString(flagProofType)
+			if err != nil {
+				return fmt.Errorf("failed to get proof type from flag: %w", err)
+			}
+
+			var zkAlgorithm tendermintClient.SupportedZkAlgorithm
+			if proofType == "groth16" {
+				zkAlgorithm = tendermintClient.Groth16
+			} else if proofType == "plonk" {
+				zkAlgorithm = tendermintClient.Plonk
+			} else {
+				return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
+			}
+
+			clientState := updateClientContract.IICS07TendermintMsgsClientState{
+				ChainId:    chainId,
+				TrustLevel: trustThreshold,
+				LatestHeight: updateClientContract.IICS02ClientMsgsHeight{
+					RevisionNumber: revision,
+					RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
+				},
+				IsFrozen:        false,
+				ZkAlgorithm:     uint8(zkAlgorithm),
+				TrustingPeriod:  trustingPeriod,
+				UnbondingPeriod: uint32(unbondingPeriod),
+			}
+
+			consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
+				Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
+				Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
+				NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
+			}
+
+			genesis := tendermintClient.SP1ICS07TendermintGenesis{
+				TrustedClientState:    clientState,
+				TrustedConsensusState: consensusState,
+			}
+
+			outputType, err := cmd.Flags().GetString(flagOutput)
+			if err != nil {
+				return fmt.Errorf("failed to get output type from flag: %w", err)
+			}
+
+			data, err := json.Marshal(genesis)
+			if err != nil {
+				return fmt.Errorf("failed to marshal genesis state: %w", err)
+			}
+
+			if outputType == "json" {
+				fmt.Println(string(data))
+			} else if outputType == "file" {
+				outputDir, err := cmd.Flags().GetString(flagOutputPath)
+				if err != nil {
+					return fmt.Errorf("failed to get output path from flag: %w", err)
+				}
+
+				if err := os.WriteFile(outputDir, data, 0644); err != nil {
+					return fmt.Errorf("failed to write genesis state to file: %w", err)
+				}
+			} else {
+				return fmt.Errorf("unsupported output type: %s, supported types are: json, file", outputType)
+			}
+
 			return nil
 		},
 	}
@@ -113,7 +215,7 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 	cmd.Flags().String(flagOutput, "json", "the output structure for the genesis state (json, file)")
 	cmd.Flags().String(flagOutputPath, "./data/genesis.json", "the path to the output file for the genesis state")
 	cmd.Flags().String(flagTrustLevel, "2/3", "the trust level for the genesis state (e.g., 2/3)")
-	cmd.Flags().String(flagTrustingPeriod, "24", "the trusting period for the genesis state")
+	cmd.Flags().Uint32(flagTrustingPeriod, 0, "the trusting period for the genesis state")
 	return cmd
 }
 
@@ -171,28 +273,34 @@ func Misbehaviour(logger *zap.Logger) *cobra.Command {
 }
 
 // parseTrustThreshold parses a trust threshold fraction string like "2/3"
-func parseTrustThreshold(value string) (tendermintContract.IICS07TendermintMsgsTrustThreshold, error) {
+func parseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 {
-		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
 	}
 
 	numerator, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
-		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
 	}
 
 	denominator, err := strconv.ParseUint(parts[1], 10, 64)
 	if err != nil {
-		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
 	}
 
 	if denominator == 0 {
-		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
 	}
 
-	return tendermintContract.IICS07TendermintMsgsTrustThreshold{
+	return updateClientContract.IICS07TendermintMsgsTrustThreshold{
 		Numerator:   uint8(numerator),
 		Denominator: uint8(denominator),
 	}, nil
+}
+
+func bytesToBytes32(data []byte) [32]byte {
+	var result [32]byte
+	copy(result[:], data)
+	return result
 }
