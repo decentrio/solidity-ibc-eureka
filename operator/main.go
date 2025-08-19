@@ -22,7 +22,6 @@ import (
 
 const (
 	flagOnlyOnce       = "only-once"
-	flagPrivateCluster = "private-cluster"
 	flagProofType      = "proof-type"
 	flagOutput         = "output"
 	flagOutputPath     = "output-path"
@@ -63,12 +62,11 @@ func Start(logger *zap.Logger) *cobra.Command {
 		Short: "start",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-
+			// TODO:
 			return nil
 		},
 	}
 	cmd.Flags().Bool(flagOnlyOnce, false, "run only once")
-	cmd.Flags().Bool(flagPrivateCluster, false, "enable private cluster")
 	// cmd.Flags().String(flagConfigPath, ".operator/config.yaml", "the path to your operator priv and pub key")
 	return cmd
 }
@@ -150,11 +148,12 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 			}
 
 			var zkAlgorithm tendermintClient.SupportedZkAlgorithm
-			if proofType == "groth16" {
+			switch proofType {
+			case "groth16":
 				zkAlgorithm = tendermintClient.Groth16
-			} else if proofType == "plonk" {
+			case "plonk":
 				zkAlgorithm = tendermintClient.Plonk
-			} else {
+			default:
 				return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
 			}
 
@@ -192,9 +191,10 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				return fmt.Errorf("failed to marshal genesis state: %w", err)
 			}
 
-			if outputType == "json" {
+			switch outputType {
+			case "json":
 				fmt.Println(string(data))
-			} else if outputType == "file" {
+			case "file":
 				outputDir, err := cmd.Flags().GetString(flagOutputPath)
 				if err != nil {
 					return fmt.Errorf("failed to get output path from flag: %w", err)
@@ -203,7 +203,7 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				if err := os.WriteFile(outputDir, data, 0644); err != nil {
 					return fmt.Errorf("failed to write genesis state to file: %w", err)
 				}
-			} else {
+			default:
 				return fmt.Errorf("unsupported output type: %s, supported types are: json, file", outputType)
 			}
 
