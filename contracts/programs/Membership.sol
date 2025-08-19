@@ -11,7 +11,7 @@ import "@openzeppelin-contracts/utils/Bytes.sol";
  * @dev Contract to verify membership of key-value pairs in a Merkle tree
  * Converted from Rust zkVM code for Cosmos SDK proof verification
  */
-contract MerkleTreeMembership  is IMembership {
+contract Membership  is IMembership {
     using Math for uint256;
     using Bytes for *;
      
@@ -100,7 +100,7 @@ contract MerkleTreeMembership  is IMembership {
         bytes32 value,
         uint256 startIndex,
         IMembershipMsgs.MerkleProof memory proof
-    ) internal pure {
+    ) internal view {
         if (proof.proofs.length == 0) {
             revert MissingMerkleProof();
         }
@@ -168,7 +168,7 @@ contract MerkleTreeMembership  is IMembership {
         bytes32 root,
         bytes[] memory path,
         IMembershipMsgs.MerkleProof memory proof
-    ) internal pure returns (bool) {
+    ) internal view returns (bool) {
         if (proof.proofs.length == 0) {
             revert MissingMerkleProof();
         }
@@ -250,7 +250,7 @@ contract MerkleTreeMembership  is IMembership {
     function checkExistenceProof(
         IMembershipMsgs.ExistenceProof memory proof,
         IMembershipMsgs.ProofSpec memory spec
-    ) internal pure {
+    ) internal view {
         if (!spec.hasLeafSpec) {
             revert MissingLeafSpec();
         }
@@ -373,7 +373,7 @@ contract MerkleTreeMembership  is IMembership {
         bytes32 subroot,
         bytes memory key,
         bytes32 value
-    ) internal pure returns (bool) {
+    ) internal view returns (bool) {
         checkExistenceProof(proof, spec);
         if (keccak256(abi.encode(proof.key)) != keccak256(abi.encode(key)) || proof.value != value) {
             revert ProvidedKeyValueMismatch();
@@ -391,24 +391,24 @@ contract MerkleTreeMembership  is IMembership {
         IMembershipMsgs.ProofSpec memory spec,
         bytes32 root,
         bytes memory key
-    ) internal pure returns (bool) {
+    ) internal view returns (bool) {
 
         bool preHash = spec.prehashKeyBeforeComparison;
         IMembershipMsgs.HashOp prehashOp = spec.leafOp.prehashKey;
         if (proof.hasLeft) {
             verifyExistenceProof(proof.left, spec, root, proof.left.key, proof.left.value);
-            if (keyForComparison(key, preHash, prehashOp) <=
-                    keyForComparison(proof.left.key, preHash, prehashOp)) {
-                revert("left key isn't before key");
-            }
+            require(compareBytes(
+                keyForComparison(key, preHash, prehashOp),
+                keyForComparison(proof.left.key, preHash, prehashOp)
+            ) == 1, "left key isn't before key");
         }
 
         if (proof.hasRight) {
             verifyExistenceProof(proof.right, spec, root, proof.right.key, proof.right.value);
-            if (keyForComparison(key, preHash, prehashOp) >=
-                    keyForComparison(proof.right.key, preHash, prehashOp)) {
-                revert("right key isn't after key");
-            }
+            require(compareBytes(
+                keyForComparison(key, preHash, prehashOp),
+                keyForComparison(proof.right.key, preHash, prehashOp)
+            ) == -1, "right key isn't after key");
         }
 
         if (!spec.hasInnerSpec) {
@@ -541,7 +541,7 @@ contract MerkleTreeMembership  is IMembership {
     function ensureRightMost(
         IMembershipMsgs.InnerSpec memory innerSpec,
         IMembershipMsgs.InnerOp[] memory path
-    ) internal pure {
+    ) internal view {
         IMembershipMsgs.Padding memory padding = getPadding(innerSpec, innerSpec.childOrder.length - 1);
 
         for (uint256 i = 0; i < path.length; i++) {
@@ -587,7 +587,7 @@ contract MerkleTreeMembership  is IMembership {
     function ensureLeftMost(
         IMembershipMsgs.InnerSpec memory innerSpec,
         IMembershipMsgs.InnerOp[] memory path
-    ) internal pure {
+    ) internal view {
         // fails unless this is the left-most path in the tree, excluding placeholder (empty child) nodes
         IMembershipMsgs.Padding memory padding = getPadding(innerSpec, 0);
         for (uint256 i = 0; i < path.length; i++) {
@@ -688,6 +688,35 @@ contract MerkleTreeMembership  is IMembership {
             inner.suffix.length == padding.suffix
         );
     }
+
+     function compareBytes(bytes memory a, bytes memory b) public pure returns (int8) {
+        if (a.length != b.length) {
+            // For different lengths, we still need to compare byte by byte
+            // up to the shorter length, then compare lengths
+            uint256 minLength = a.length < b.length ? a.length : b.length;
+            
+            for (uint256 i = 0; i < minLength; i++) {
+                if (a[i] < b[i]) return -1;
+                if (a[i] > b[i]) return 1;
+            }
+            
+            return a.length < b.length ? int8(-1) : int8(1);
+        }
+        
+        // Same length - we can use keccak256 for equality check first
+        if (keccak256(a) == keccak256(b)) {
+            return 0;
+        }
+        
+        // Different content, same length - compare byte by byte
+        for (uint256 i = 0; i < a.length; i++) {
+            if (a[i] < b[i]) return -1;
+            if (a[i] > b[i]) return 1;
+        }
+        
+        return 0; // Should never reach here
+    }
+
     /**
      * @dev Convert bytes to bytes32
      * @param data The bytes to convert
@@ -718,7 +747,7 @@ contract MerkleTreeMembership  is IMembership {
 
     function getSlice(bytes memory array, uint256 from, uint256 to) 
         public 
-        pure 
+        view 
         returns (bytes memory) 
     {
         require(from <= to, "Invalid range: from > to");

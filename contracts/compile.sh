@@ -22,8 +22,8 @@ forge clean
 forge build
 
 create_binding ./programs/ "Membership" ../operator/bindings
+create_binding ./programs/ "Misbehaviour" ../operator/bindings
 create_binding ./programs/ "UpdateClient" ../operator/bindings
-create_binding ./light-clients/msgs/ "IUpdateClientMsgs" ../operator/bindings
 create_binding ./light-clients/ "SP1ICS07Tendermint" ../operator/bindings
 create_binding ./ "ICS20Transfer" ../operator/bindings
 create_binding ./ "ICS26Router" ../operator/bindings

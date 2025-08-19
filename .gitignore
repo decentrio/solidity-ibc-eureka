@@ -29,6 +29,9 @@ broadcast/*/31337/
 *.iml
 CLAUDE.md
 
+# contract temp data
+contracts/data/
+
 # Rust
 target
 artifacts
