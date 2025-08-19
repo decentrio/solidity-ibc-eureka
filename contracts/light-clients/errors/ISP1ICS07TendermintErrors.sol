@@ -116,15 +116,15 @@ interface ISP1ICS07TendermintErrors {
 
     /// @notice Returned when a key-value pair is not in the cache.
     /// @param path The path of the key-value pair.
-    /// @param value The value of the key-value pair.
+    /// @param value The value of the key-value pair.InsufficientTrustingPeriod    
     error KeyValuePairNotInCache(bytes[] path, bytes value);
 
     /// @notice Returned when the membership value is empty.
     error EmptyValue();
 
     /// @notice insufficient misbehaviour header height: header1 height `{height_1}` should be >= header2 height `{height_2}`.
-    /// @param header1 height.
-    /// @param header2 height. 
+    /// @param height1 header1 height.
+    /// @param height2 header2 height. 
     error InsufficientMisbehaviourHeaderHeight(uint64 height1, uint64 height2);
 
     /// @notice mismatched revision heights.
@@ -133,20 +133,22 @@ interface ISP1ICS07TendermintErrors {
     error MismatchedRevisionHeights(uint64 expected, uint64 actual);
 
     /// @notice invalid header height.
-    /// @param invalid value.
+    /// @param height invalid value.
     error InvalidHeaderHeight(uint64 height);
 
     /// @notice vaidator hashes mismatch.
     /// @param expected validator hashes.
     /// @param actual validator hashes.
-    error MismatchedValidatorHashes(byte32 expected, byte32 actual);
+    error MismatchedValidatorHashes(bytes32 expected, bytes32 actual);
 
     /// @notice failed to verify header.
     /// @param description.
     error FailedToVerifyHeader(string description);
 
     /// @notice duration since consensus state exceeds than trusting period.
-    /// @param duration.
-    /// @param trusting period.
-    error InsufficientTrustingPeriod(uint durationSinceConsensusState, uint trustingPeriod);
+    /// @param durationSinceConsensusState.
+    /// @param trustingPeriod.
+    error InsufficientTrustingPeriod(uint128 durationSinceConsensusState, uint128 trustingPeriod);
+
+    error InvalidConsensusStateTimestamp(uint128 timestamp);
 }

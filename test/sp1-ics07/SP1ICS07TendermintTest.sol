@@ -70,10 +70,10 @@ abstract contract SP1ICS07TendermintTest is
         }
 
         ics07Tendermint = new SP1ICS07Tendermint(
-            genesisFixture.updateClientVkey,
-            genesisFixture.membershipVkey,
-            genesisFixture.ucAndMembershipVkey,
-            genesisFixture.misbehaviourVkey,
+            // genesisFixture.updateClientVkey,
+            // genesisFixture.membershipVkey,
+            // genesisFixture.ucAndMembershipVkey,
+            // genesisFixture.misbehaviourVkey,
             verifier,
             genesisFixture.trustedClientState,
             trustedConsensusHash,
@@ -81,10 +81,10 @@ abstract contract SP1ICS07TendermintTest is
         );
 
         mockIcs07Tendermint = new SP1ICS07Tendermint(
-            genesisFixture.updateClientVkey,
-            genesisFixture.membershipVkey,
-            genesisFixture.ucAndMembershipVkey,
-            genesisFixture.misbehaviourVkey,
+            // genesisFixture.updateClientVkey,
+            // genesisFixture.membershipVkey,
+            // genesisFixture.ucAndMembershipVkey,
+            // genesisFixture.misbehaviourVkey,
             address(new SP1MockVerifier()),
             genesisFixture.trustedClientState,
             trustedConsensusHash,

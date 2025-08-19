@@ -5,6 +5,8 @@ import { IUpdateClientMsgs } from "../light-clients/msgs/IUpdateClientMsgs.sol";
 import { IICS07TendermintMsgs } from "../light-clients/msgs/IICS07TendermintMsgs.sol";
 import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
+import { Predicates } from "../utils/Predicates.sol";
+import { Header } from "../utils/Header.sol";
 import { HeightCmp } from "../utils/HeightCmp.sol";
 
 import { Strings } from "@openzeppelin-contracts/utils/Strings.sol";
@@ -34,17 +36,17 @@ contract UpdateClient is IUpdateClient {
     function updateClient(
         IICS07TendermintMsgs.ClientState memory clientState,
         IICS07TendermintMsgs.ConsensusState memory trustedConsensusState,
-        IUpdateClientMsgs.Header memory proposedHeader,
+        IICS07TendermintMsgs.Header memory proposedHeader,
         uint128 time
     ) view external {
-        IUpdateClientMsgs.ChainId memory chainId = getChainId(clientState.chainId);
-        IUpdateClientMsgs.Options memory options = IUpdateClientMsgs.Options({
+        IICS07TendermintMsgs.ChainId memory chainId = getChainId(clientState.chainId);
+        IICS07TendermintMsgs.Options memory options = IICS07TendermintMsgs.Options({
             trustThreshold: clientState.trustLevel,
             trustingPeriod: clientState.trustingPeriod,
             clockDrift: 15
         });
 
-        IUpdateClientMsgs.ClientConsensusStatePath memory path = IUpdateClientMsgs.ClientConsensusStatePath({
+        IICS07TendermintMsgs.ClientConsensusStatePath memory path = IICS07TendermintMsgs.ClientConsensusStatePath({
             clientId: clientId,
             revisionNumber: proposedHeader.trustedHeight.revisionNumber,
             revisionHeight: proposedHeader.trustedHeight.revisionHeight
@@ -62,12 +64,12 @@ contract UpdateClient is IUpdateClient {
     }
 
     function verifyHeader(
-        IUpdateClientMsgs.Header memory proposedHeader,
+        IICS07TendermintMsgs.Header memory proposedHeader,
         string memory clientId,
-        IUpdateClientMsgs.ChainId memory chainId,
-        IUpdateClientMsgs.Options memory options,
+        IICS07TendermintMsgs.ChainId memory chainId,
+        IICS07TendermintMsgs.Options memory options,
         uint128 time,
-        IUpdateClientMsgs.ClientConsensusStatePath memory path,
+        IICS07TendermintMsgs.ClientConsensusStatePath memory path,
         IICS07TendermintMsgs.ConsensusState memory trustedConsensusState
     ) internal pure {
         // Checks that the header fields are valid.
@@ -80,24 +82,24 @@ contract UpdateClient is IUpdateClient {
         // Delegate to tendermint-light-client, which contains the required checks
         // of the new header against the trusted consensus state.
         {
-            bytes32 nextValSetHash = hashValSet(proposedHeader.trustedNextValidatorSet);
+            bytes32 nextValSetHash = Header.hashValSet(proposedHeader.trustedNextValidatorSet);
             if (nextValSetHash != trustedConsensusState.nextValidatorsHash) {
                 revert FailedToVerifyHeader(
                     "trusted next validator set hash does not match hash stored on chain"
                 );
             }
 
-            IUpdateClientMsgs.TrustedBlockState memory trustedState = IUpdateClientMsgs.TrustedBlockState({
-                chainId: chainId,
+            IICS07TendermintMsgs.TrustedBlockState memory trustedState = IICS07TendermintMsgs.TrustedBlockState({
+                chainId: chainId.id,
                 headerTime: time,
                 height: proposedHeader.trustedHeight.revisionHeight,
-                nextValidators: proposedHeader.trustedNextValidatorSet,
-                nextValidatorsHash: nextValSetHash
+                nextValidatorSet: proposedHeader.trustedNextValidatorSet,
+                nextValidatorHash: nextValSetHash
             });
 
-            IUpdateClientMsgs.UnTrustedBlockState memory untrustedState = IUpdateClientMsgs.UnTrustedBlockState({
+            IICS07TendermintMsgs.UntrustedBlockState memory untrustedState = IICS07TendermintMsgs.UntrustedBlockState({
                 signedHeader: proposedHeader.signedHeader,
-                validators: proposedHeader.validatorSet
+                validatorSet: proposedHeader.validatorSet
             });
 
             verifyUpdateHeader(
@@ -112,145 +114,24 @@ contract UpdateClient is IUpdateClient {
     }
 
     function verifyUpdateHeader(
-        IUpdateClientMsgs.UnTrustedBlockState memory untrustedState,
-        IUpdateClientMsgs.TrustedBlockState memory trustedState,
-        IUpdateClientMsgs.Options memory options,
+        IICS07TendermintMsgs.UntrustedBlockState memory untrustedState,
+        IICS07TendermintMsgs.TrustedBlockState memory trustedState,
+        IICS07TendermintMsgs.Options memory options,
         uint128 time
     ) internal pure {
-        verifyValSets(untrustedState);
-        verifyAgainstTrusted(untrustedState, trustedState, options.trustingPeriod, time);
+        Predicates.verifyValSets(untrustedState);
+        Predicates.verifyAgainstTrusted(untrustedState, trustedState, options.trustingPeriod, time);
         /// Check that the untrusted header is from past.
         uint128 drifted = time + options.clockDrift;
         require(untrustedState.signedHeader.header.time < drifted, "invalid block: header is from the future");
-        verifyCommitAgainstTrusted(untrustedState, trustedState, options);
-    }
-
-    function verifyValSets(
-        IUpdateClientMsgs.UnTrustedBlockState memory untrustedState
-    ) internal pure {
-        // Ensure the header validator hashes match the given validators
-        bytes32 valSetHash = hashValSet(untrustedState.validators);
-        if (valSetHash != untrustedState.signedHeader.header.validatorsHash) {
-            revert("invalid block: validator set hash mismatch");
-        }
-
-        // Ensure the header matches the commit
-        bytes32 headerHash = hashHeader(untrustedState.signedHeader.header);
-        if (headerHash != untrustedState.signedHeader.commit.blockId.hashData) {
-            revert("invalid block: header hash mismatch");
-        }
-
-        // Additional implementation specific validation
-        validateCommit(untrustedState.signedHeader, untrustedState.validators);
-    }
-
-    function verifyAgainstTrusted(
-        IUpdateClientMsgs.UnTrustedBlockState memory untrustedState,
-        IUpdateClientMsgs.TrustedBlockState memory trustedState,
-        uint64 trustingPeriod,
-        uint128 time
-    ) internal pure {
-        // Ensure the latest trusted header hasn't expired
-        if (time < trustedState.headerTime || time - trustedState.headerTime > trustingPeriod) {
-            revert("invalid block: untrusted state is outside of trusting period");
-        }
-
-        // Check that the untrusted block is more recent than the trusted state
-        require(untrustedState.signedHeader.header.time > trustedState.headerTime, "invalid block: non monotonic bft time");
-
-        // Check that the chain-id of the untrusted block matches that of the trusted state
-        require(keccak256(abi.encodePacked(untrustedState.signedHeader.header.chainId)) == keccak256(abi.encodePacked(trustedState.chainId.id)), "invalid block: chain-id mismatch");
-
-        uint64 trustedNextHeight = trustedState.height + 1;
-
-        if (untrustedState.signedHeader.header.height == trustedNextHeight) {
-            // If the untrusted block is the very next block after the trusted block,
-            // check that their (next) validator sets hashes match.
-            require(untrustedState.signedHeader.header.validatorsHash == trustedState.nextValidatorsHash, "invalid block: next validator set hash mismatch");
-        } else {
-            // Otherwise, ensure that the untrusted block has a greater height than
-            // the trusted block.
-            require(untrustedState.signedHeader.header.height > trustedNextHeight, "invalid block: non increasing height");
-        }
-    }
-
-    /// Verify that a) there is enough overlap between the validator sets of the
-    /// trusted and untrusted blocks and b) more than 2/3 of the validators
-    /// correctly committed the block.
-    function verifyCommitAgainstTrusted(
-        IUpdateClientMsgs.UnTrustedBlockState memory untrustedState,
-        IUpdateClientMsgs.TrustedBlockState memory trustedState,
-        IUpdateClientMsgs.Options memory options
-    ) internal pure {
-        // If the trusted validator set has changed we need to check if there’s
-        // overlap between the old trusted set and the new untrested header in
-        // addition to checking if the new set correctly signed the header.
-        uint64 trustedNextHeight = trustedState.height + 1;
-        bool needBoth = untrustedState.signedHeader.header.height != trustedNextHeight;
-
-        if (needBoth) {
-            // TODO: check_enough_trust_and_signers
-        } else {
-            /// Check that there is enough signers overlap between the given, untrusted
-            /// validator set and the untrusted signed header.
-            IICS07TendermintMsgs.TrustThreshold memory trustThreshold = IICS07TendermintMsgs.TrustThreshold({
-                numerator: 2,
-                denominator: 3
-            });
-
-            // TODO: check enough power
-        }
-    }
-
-    function validateCommit(
-        IUpdateClientMsgs.SignedHeader memory signedHeader,
-        IUpdateClientMsgs.ValidatorSet memory validators
-    ) internal pure {
-        IUpdateClientMsgs.CommitSig[] memory commitSigs = signedHeader.commit.commitSigs;
-
-        bool hasPresentSignature = false;
-        for (uint256 i = 0; i < commitSigs.length; i++) {
-            if (commitSigs[i].flag != IUpdateClientMsgs.CommitSigFlag.BLOCK_ID_FLAG_ABSENT) {
-                hasPresentSignature = true;
-            }
-        }
-
-        if (!hasPresentSignature) {
-            revert("invalid commit: no present signatures");
-        }
-
-        if (commitSigs.length != validators.validators.length) {
-            revert("invalid commit: number of signatures does not match number of validators");
-        }
-
-        for (uint256 i = 0; i < commitSigs.length; i++) {
-            IUpdateClientMsgs.CommitSig memory sig = commitSigs[i];
-            bytes memory validatorAddress;
-
-            if (sig.flag == IUpdateClientMsgs.CommitSigFlag.BLOCK_ID_FLAG_ABSENT) {
-                continue;
-            } else {
-                validatorAddress = sig.data.validatorAddress;
-            }
-
-            bool found = false;
-            for (uint256 j = 0; j < validators.validators.length; j++) {
-                if (keccak256(abi.encodePacked(validators.validators[j].valAddress)) == keccak256(abi.encodePacked(validatorAddress))) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                revert("invalid commit: faulty signer");
-            }
-        }
+        Predicates.verifyCommitAgainstTrusted(untrustedState, trustedState, options);
     }
 
     function verifyChainIdVersion(
-        IUpdateClientMsgs.ChainId memory chainId,
-        IUpdateClientMsgs.Header memory header
+        IICS07TendermintMsgs.ChainId memory chainId,
+        IICS07TendermintMsgs.Header memory header
     ) internal pure {
-        IUpdateClientMsgs.ChainId memory headerChainId = getChainId(header.signedHeader.header.chainId);
+        IICS07TendermintMsgs.ChainId memory headerChainId = getChainId(header.signedHeader.header.chainId);
         if (chainId.revisionNumber != headerChainId.revisionNumber) {
             revert HeaderChainIdMismatch(
                 header.signedHeader.header.chainId,
@@ -260,9 +141,9 @@ contract UpdateClient is IUpdateClient {
     }
 
     function validateBasic(
-        IUpdateClientMsgs.Header memory header
+        IICS07TendermintMsgs.Header memory header
     ) internal pure {
-        IUpdateClientMsgs.ChainId memory chainId = getChainId(header.signedHeader.header.chainId);
+        IICS07TendermintMsgs.ChainId memory chainId = getChainId(header.signedHeader.header.chainId);
         if (chainId.revisionNumber != header.trustedHeight.revisionNumber) {
             revert MismatchedRevisionHeight(
                 chainId.revisionNumber,
@@ -285,7 +166,7 @@ contract UpdateClient is IUpdateClient {
             );
         }
 
-        bytes32 valSetHash = hashValSet(header.validatorSet);
+        bytes32 valSetHash = Header.hashValSet(header.validatorSet);
         if (valSetHash != header.signedHeader.header.validatorsHash) {
             revert ValSetHashMismatch(
                 header.signedHeader.header.validatorsHash,
@@ -294,137 +175,7 @@ contract UpdateClient is IUpdateClient {
         }
     }
 
-
-    function hashValSet(
-        IUpdateClientMsgs.ValidatorSet memory valset
-    ) pure internal returns (bytes32) {
-        bytes[] memory validatorBytes = new bytes[](valset.validators.length);
-        for (uint256 i = 0; i < valset.validators.length; i++) {
-            bytes memory validatorHash = encodeValidator(
-                IUpdateClientMsgs.SimpleValidator({
-                    pubKey: valset.validators[i].pubKey,
-                    votingPower: valset.validators[i].votingPower
-                })
-            );
-            validatorBytes[i] = validatorHash;
-
-        }
-
-        bytes32 root = merkleHash(validatorBytes);
-        return root;
-    }
-
-    function hashHeader(
-        IUpdateClientMsgs.BlockHeader memory header
-    ) pure internal returns (bytes32) {
-        uint256 fieldCount = 9;
-        
-        if (header.hasLastBlockId) fieldCount++;
-        if (header.hasLastCommitHash) fieldCount++;
-        if (header.hasDataHash) fieldCount++;
-        if (header.hasLastResultsHash) fieldCount++;
-        if (header.hasEvidenceHash) fieldCount++;
-        
-        bytes[] memory headerBytes = new bytes[](fieldCount);
-        uint256 index = 0;
-        
-        // Always present fields
-        headerBytes[index++] = encodeVersion(header.version);
-        headerBytes[index++] = encodeString(header.chainId);
-        headerBytes[index++] = encodeVarint(uint256(header.height));
-        headerBytes[index++] = encodeVarint(uint256(header.time));
-        
-        // Conditional fields
-        if (header.hasLastBlockId) {
-            headerBytes[index++] = encodeBlockId(header.lastBlockId);
-        }
-        
-        if (header.hasLastCommitHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastCommitHash);
-        }
-        
-        if (header.hasDataHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.dataHash);
-        }
-        
-        // Always present fields
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.validatorsHash);
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.nextValidatorsHash);
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.consensusHash);
-        
-        // appHash is always present (no has flag in struct)
-        uint256 appHashLength = header.appHash.length;
-        headerBytes[index++] = abi.encodePacked(encodeVarint(appHashLength), header.appHash);
-        
-        // Conditional fields
-        if (header.hasLastResultsHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastResultsHash);
-        }
-        
-        if (header.hasEvidenceHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.evidenceHash);
-        }
-        
-        // proposerAddress is always present (no has flag in struct)
-        uint256 proposerAddressLength = header.proposerAddress.length;
-        headerBytes[index++] = abi.encodePacked(encodeVarint(proposerAddressLength), header.proposerAddress);
-        
-        return merkleHash(headerBytes);
-    }
-
-    function merkleHash(
-        bytes[] memory bytesArray
-    ) internal pure returns (bytes32) {
-        if (bytesArray.length == 0) {
-            return bytes32(0);
-        }
-
-        // tmhash(0x00 || leaf)
-        // Pre and post-conditions: the hasher is in the reset state
-        // before and after calling this function.
-        if (bytesArray.length == 1) {
-            return sha256(abi.encodePacked([0x00], bytesArray[0]));
-        }
-
-        uint256 split = nextPowerOfTwo(bytesArray.length) / 2;
-        bytes32 left = merkleHash(getSlice(bytesArray, 0, split));
-        bytes32 right = merkleHash(getSlice(bytesArray, split, bytesArray.length));
-
-        return sha256(abi.encodePacked([0x01], left, right));
-    }
-
-    function getSlice(bytes[] memory bytesArray, uint256 from, uint256 to)
-        public pure returns (bytes[] memory result) {
-        require(from <= to && to <= bytesArray.length, "Invalid range");
-        
-        uint256 length = to - from;
-        result = new bytes[](length);
-        
-        assembly {
-            let src := add(add(bytesArray, 0x20), mul(from, 0x20))
-            let dst := add(result, 0x20)
-            let size := mul(length, 0x20)
-            
-            for { let i := 0 } lt(i, size) { i := add(i, 0x20) } {
-                mstore(add(dst, i), mload(add(src, i)))
-            }
-        }
-    }
-    function nextPowerOfTwo(uint256 n) public pure returns (uint256) {
-        if (n == 0) return 1;
-        
-        // Handle the case where n is already a power of 2
-        if (n & (n - 1) == 0) return n;
-        
-        // Find the next power of 2
-        uint256 power = 1;
-        while (power < n) {
-            power <<= 1;
-        }
-        return power;
-    }
-
-    function getChainId(string memory id) pure internal returns (IUpdateClientMsgs.ChainId memory) {
+    function getChainId(string memory id) pure internal returns (IICS07TendermintMsgs.ChainId memory) {
         // TODO: validate id
         bytes memory chainIdBytes = bytes(id);
 
@@ -439,7 +190,7 @@ contract UpdateClient is IUpdateClient {
 
         if (lastDashIndex == -1) {
             if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
-                return IUpdateClientMsgs.ChainId({
+                return IICS07TendermintMsgs.ChainId({
                     id: id, 
                     revisionNumber: 0
                 });
@@ -459,7 +210,7 @@ contract UpdateClient is IUpdateClient {
         // Zero is the only allowed revision number with leading zero.
         if (revisionBytes.length == 0 || (revisionBytes[0] == 0x30 && revisionBytes.length > 1)) {
             if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
-                return IUpdateClientMsgs.ChainId({
+                return IICS07TendermintMsgs.ChainId({
                     id: id, 
                     revisionNumber: 0
                 });
@@ -471,7 +222,7 @@ contract UpdateClient is IUpdateClient {
         (bool success, uint256 parsedRevisionNumber) = Strings.tryParseUint(string(revisionBytes));
         if (! success || parsedRevisionNumber > type(uint64).max) {
             if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
-                return IUpdateClientMsgs.ChainId({
+                return IICS07TendermintMsgs.ChainId({
                     id: id, 
                     revisionNumber: 0
                 });
@@ -497,100 +248,11 @@ contract UpdateClient is IUpdateClient {
             revert("Invalid chain prefix length");
         }
 
-        return IUpdateClientMsgs.ChainId({
+        return IICS07TendermintMsgs.ChainId({
             id: id, 
             revisionNumber: revisionNumber
         });
     }
 
-    function encodeVarint(uint256 value) internal pure returns (bytes memory) {
-        if (value < 128) {
-            return abi.encodePacked(uint8(value));
-        }
-        
-        bytes memory result;
-        while (value >= 128) {
-            result = abi.encodePacked(result, uint8((value & 0x7F) | 0x80));
-            value >>= 7;
-        }
-        result = abi.encodePacked(result, uint8(value));
-        return result;
-    }
 
-    function encodeString(string memory value) internal pure returns (bytes memory) {
-        bytes memory valueBytes = bytes(value);
-        uint256 length = valueBytes.length;
-        
-        // Encode length as varint
-        bytes memory lengthBytes = encodeVarint(length);
-
-        // Concatenate length and value
-        return abi.encodePacked(lengthBytes, valueBytes);
-    }
-
-
-    function encodeValidator(
-        IUpdateClientMsgs.SimpleValidator memory validator
-    ) internal pure returns (bytes memory) {
-        bytes memory encoded = new bytes(0);
-        
-        // Encode field 1: pub_key (tag = 1, wire type = 2 for length-delimited)
-        // Tag byte: (field_number << 3) | wire_type = (1 << 3) | 2 = 0x0A
-        encoded = abi.encodePacked(encoded, uint8(0x0A)); // tag
-        encoded = abi.encodePacked(encoded, uint8(32));   // length (32 bytes)
-        encoded = abi.encodePacked(encoded, validator.pubKey); // data
-        
-        // Encode field 2: voting_power (tag = 2, wire type = 0 for varint)
-        // Tag byte: (field_number << 3) | wire_type = (2 << 3) | 0 = 0x10
-        encoded = abi.encodePacked(encoded, uint8(0x10)); // tag
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(validator.votingPower))); // varint-encoded value
-
-        return encoded;
-    }
-
-    function encodeVersion(IUpdateClientMsgs.Version memory version) internal pure returns (bytes memory) {
-        bytes memory encoded = new bytes(0);
-        
-        // Field 1: blockVersion (tag = 1, wire type = 0 for varint)
-        encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.blockVersion)));
-        
-        // Field 2: appVersion (tag = 2, wire type = 0 for varint)
-        encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.appVersion)));
-        
-        return encoded;
-    }
-
-    function encodeBlockId(IUpdateClientMsgs.BlockId memory blockId) internal pure returns (bytes memory) {
-        bytes memory encoded = new bytes(0);
-        
-        // Field 1: hashData (tag = 1, wire type = 2 for bytes)
-        encoded = abi.encodePacked(encoded, uint8(0x0A)); // tag: (1 << 3) | 2
-        encoded = abi.encodePacked(encoded, uint8(32)); // 32 bytes length
-        encoded = abi.encodePacked(encoded, blockId.hashData);
-        
-        // Field 2: partSetHeader (tag = 2, wire type = 2 for message)
-        bytes memory partSetHeaderEncoded = encodePartSetHeader(blockId.partSetHeader);
-        encoded = abi.encodePacked(encoded, uint8(0x12)); // tag: (2 << 3) | 2
-        encoded = abi.encodePacked(encoded, encodeVarint(partSetHeaderEncoded.length));
-        encoded = abi.encodePacked(encoded, partSetHeaderEncoded);
-        
-        return encoded;
-    }
-
-    function encodePartSetHeader(IUpdateClientMsgs.PartSetHeader memory partSetHeader) internal pure returns (bytes memory) {
-        bytes memory encoded = new bytes(0);
-        
-        // Field 1: total (tag = 1, wire type = 0 for varint)
-        encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(partSetHeader.total)));
-        
-        // Field 2: hashData (tag = 2, wire type = 2 for bytes)
-        encoded = abi.encodePacked(encoded, uint8(0x12)); // tag: (2 << 3) | 2
-        encoded = abi.encodePacked(encoded, uint8(32)); // 32 bytes length
-        encoded = abi.encodePacked(encoded, partSetHeader.hashData);
-        
-        return encoded;
-    }
 }

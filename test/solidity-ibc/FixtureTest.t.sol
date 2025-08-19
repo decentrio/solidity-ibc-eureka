@@ -100,10 +100,10 @@ abstract contract FixtureTest is Test, IICS07TendermintMsgs, DeployAccessManager
         }
 
         SP1ICS07Tendermint ics07Tendermint = new SP1ICS07Tendermint(
-            fixture.genesisFixture.updateClientVkey,
-            fixture.genesisFixture.membershipVkey,
-            fixture.genesisFixture.ucAndMembershipVkey,
-            fixture.genesisFixture.misbehaviourVkey,
+            // fixture.genesisFixture.updateClientVkey,
+            // fixture.genesisFixture.membershipVkey,
+            // fixture.genesisFixture.ucAndMembershipVkey,
+            // fixture.genesisFixture.misbehaviourVkey,
             verifier,
             fixture.genesisFixture.trustedClientState,
             fixture.genesisFixture.trustedConsensusStateHash,

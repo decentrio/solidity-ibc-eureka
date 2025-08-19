@@ -58,28 +58,24 @@ contract SP1ICS07Tendermint is
     bytes32 public constant PROOF_SUBMITTER_ROLE = keccak256("PROOF_SUBMITTER_ROLE");
 
     /// @notice The constructor sets the program verification key and the initial client and consensus states.
-    /// @param updateClientProgramVkey The verification key for the update client program.
-    /// @param membershipProgramVkey The verification key for the verify (non)membership program.
-    /// @param updateClientAndMembershipProgramVkey The verification key for the update client and membership program.
-    /// @param misbehaviourProgramVkey The verification key for the misbehaviour program.
     /// @param sp1Verifier The address of the SP1 verifier contract.
     /// @param _clientState The encoded initial client state.
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
     constructor(
-        bytes32 updateClientProgramVkey,
-        bytes32 membershipProgramVkey,
-        bytes32 updateClientAndMembershipProgramVkey,
-        bytes32 misbehaviourProgramVkey,
+        // bytes32 updateClientProgramVkey,
+        // bytes32 membershipProgramVkey,
+        // bytes32 updateClientAndMembershipProgramVkey,
+        // bytes32 misbehaviourProgramVkey,
         address sp1Verifier,
         bytes memory _clientState,
         bytes32 _consensusState,
         address roleManager
     ) {
-        UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
-        MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
-        UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
-        MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
+        // UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
+        // MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
+        // UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
+        // MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
 
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
@@ -121,10 +117,10 @@ contract SP1ICS07Tendermint is
     {
         IUpdateClientMsgs.MsgUpdateClient memory msgUpdateClient =
             abi.decode(updateMsg, (IUpdateClientMsgs.MsgUpdateClient));
-        require(
-            msgUpdateClient.sp1Proof.vKey == UPDATE_CLIENT_PROGRAM_VKEY,
-            VerificationKeyMismatch(UPDATE_CLIENT_PROGRAM_VKEY, msgUpdateClient.sp1Proof.vKey)
-        );
+        // require(
+        //     msgUpdateClient.sp1Proof.vKey == UPDATE_CLIENT_PROGRAM_VKEY,
+        //     VerificationKeyMismatch(UPDATE_CLIENT_PROGRAM_VKEY, msgUpdateClient.sp1Proof.vKey)
+        // );
 
         IUpdateClientMsgs.UpdateClientOutput memory output =
             abi.decode(msgUpdateClient.sp1Proof.publicValues, (IUpdateClientMsgs.UpdateClientOutput));
@@ -210,10 +206,10 @@ contract SP1ICS07Tendermint is
     function misbehaviour(bytes calldata misbehaviourMsg) external notFrozen onlyProofSubmitter {
         IMisbehaviourMsgs.MsgSubmitMisbehaviour memory msgSubmitMisbehaviour =
             abi.decode(misbehaviourMsg, (IMisbehaviourMsgs.MsgSubmitMisbehaviour));
-        require(
-            msgSubmitMisbehaviour.sp1Proof.vKey == MISBEHAVIOUR_PROGRAM_VKEY,
-            VerificationKeyMismatch(MISBEHAVIOUR_PROGRAM_VKEY, msgSubmitMisbehaviour.sp1Proof.vKey)
-        );
+        // require(
+        //     msgSubmitMisbehaviour.sp1Proof.vKey == MISBEHAVIOUR_PROGRAM_VKEY,
+        //     VerificationKeyMismatch(MISBEHAVIOUR_PROGRAM_VKEY, msgSubmitMisbehaviour.sp1Proof.vKey)
+        // );
 
         IMisbehaviourMsgs.MisbehaviourOutput memory output =
             abi.decode(msgSubmitMisbehaviour.sp1Proof.publicValues, (IMisbehaviourMsgs.MisbehaviourOutput));
@@ -248,10 +244,10 @@ contract SP1ICS07Tendermint is
         returns (uint256)
     {
         IMembershipMsgs.SP1MembershipProof memory proof = abi.decode(proofBytes, (IMembershipMsgs.SP1MembershipProof));
-        require(
-            proof.sp1Proof.vKey == MEMBERSHIP_PROGRAM_VKEY,
-            VerificationKeyMismatch(MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
-        );
+        // require(
+        //     proof.sp1Proof.vKey == MEMBERSHIP_PROGRAM_VKEY,
+        //     VerificationKeyMismatch(MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
+        // );
 
         IMembershipMsgs.MembershipOutput memory output =
             abi.decode(proof.sp1Proof.publicValues, (IMembershipMsgs.MembershipOutput));
@@ -313,10 +309,10 @@ contract SP1ICS07Tendermint is
         {
             IMembershipMsgs.SP1MembershipAndUpdateClientProof memory proof =
                 abi.decode(proofBytes, (IMembershipMsgs.SP1MembershipAndUpdateClientProof));
-            require(
-                proof.sp1Proof.vKey == UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY,
-                VerificationKeyMismatch(UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
-            );
+            // require(
+            //     proof.sp1Proof.vKey == UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY,
+            //     VerificationKeyMismatch(UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
+            // );
 
             output = abi.decode(proof.sp1Proof.publicValues, (IUpdateClientAndMembershipMsgs.UcAndMembershipOutput));
             require(

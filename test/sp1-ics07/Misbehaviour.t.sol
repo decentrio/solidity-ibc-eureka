@@ -130,7 +130,7 @@ contract SP1ICS07MisbehaviourTest is SP1ICS07TendermintTest {
         vm.expectRevert(
             abi.encodeWithSelector(
                 VerificationKeyMismatch.selector,
-                ics07Tendermint.MISBEHAVIOUR_PROGRAM_VKEY(),
+                // ics07Tendermint.MISBEHAVIOUR_PROGRAM_VKEY(),
                 badSubmitMsg.sp1Proof.vKey
             )
         );

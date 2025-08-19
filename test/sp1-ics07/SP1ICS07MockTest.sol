@@ -33,10 +33,10 @@ abstract contract SP1ICS07MockTest is Test {
         bytes32 firstConsensusStateHash = keccak256(abi.encode(newMockConsensusState(1)));
 
         ics07Tendermint = new SP1ICS07Tendermint(
-            MOCK_VKEY,
-            MOCK_VKEY,
-            MOCK_VKEY,
-            MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
             address(new SP1MockVerifier()),
             abi.encode(mockClientState(1)),
             firstConsensusStateHash,

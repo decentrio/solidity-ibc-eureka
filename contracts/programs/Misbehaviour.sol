@@ -3,15 +3,31 @@ pragma solidity ^0.8.19;
 
 import { IMisbehaviourMsgs } from "../light-clients/msgs/IMisbehaviourMsgs.sol";
 import { IICS07TendermintMsgs } from "../light-clients/msgs/IICS07TendermintMsgs.sol";
+import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
 import { ISP1ICS07TendermintErrors } from "../light-clients/errors/ISP1ICS07TendermintErrors.sol";
-
-
+import { Predicates } from "../utils/Predicates.sol";
+import { Header } from "../utils/Header.sol";
+import { HeightCmp } from "../utils/HeightCmp.sol";
+import { Strings } from "@openzeppelin-contracts/utils/Strings.sol";
+import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
 /**
  * @title Misbehavior
  * @dev Contract to verify misbehavior
  * Converted from Rust zkVM code for Cosmos SDK proof verification
  */
 contract Misbehavior {
+
+    error MismatchedRevisionHeight(
+        uint64 expected,
+        uint64 actual
+    );
+    error InvalidHeaderHeight(
+        uint64 height
+    );
+    error ValSetHashMismatch(
+        bytes32 expected,
+        bytes32 actual
+    );
 
     // Custom errors
     error InvalidClientId();
@@ -22,185 +38,291 @@ contract Misbehavior {
     error MisbehaviourNotDetected();
 
     function checkForMisbehaviour (
-        IICS07TendermintMsgs.ClientState clientState,
-        IMisbehaviorMsgs.Misbehaviour misbehaviour,
-        IICS07TendermintMsgs.ConsensusState trustedConsensusState1,
-        IICS07TendermintMsgs.ConsensusState trustedConsensusState2,
-        u128 time
-    ) public returns (IMisbehaviorMsgs.MisbehaviourOutput memory output) {
+        IICS07TendermintMsgs.ClientState memory clientState,
+        IMisbehaviourMsgs.Misbehaviour memory misbehaviour,
+        IICS07TendermintMsgs.ConsensusState memory trustedConsensusState1,
+        IICS07TendermintMsgs.ConsensusState memory trustedConsensusState2,
+        uint128 time
+    ) public returns (IMisbehaviourMsgs.MisbehaviourOutput memory output) {
         // check client state id and misbehaviour chain id
-        require(clientState.chainId == misbehaviour.signedHeader.header.chainId, ChainIdMismatch());
+        require(keccak256(abi.encode((clientState.chainId))) == keccak256(abi.encode(misbehaviour.header1.signedHeader.header.chainId)), ChainIdMismatch());
 
-        _validateBasic(misbehaviour);
+        validateBasic(misbehaviour);
 
-        Options options: {
-            clientState.trustLevel,
+        IICS07TendermintMsgs.Options memory options = IICS07TendermintMsgs.Options({
+            trustThreshold: clientState.trustLevel,
             trustingPeriod: clientState.trustingPeriod,
-            clockDrift: uint32(15),
-        };
+            clockDrift: uint32(15)
+        });
 
-        uint currentTimestamp = block.timestamp;
-        IICS07TendermintMsgs.ChainId chainId = getChainId(clientState.chainId)
+        // TODO: convert timestamp nanos to secs
+        uint128 currentTimestamp = uint128(block.timestamp);
+        IICS07TendermintMsgs.ChainId memory chainId = getChainId(clientState.chainId);
 
-        _verifyMisbehaviourHeader(
+        verifyMisbehaviourHeader(
             misbehaviour.header1,
             chainId,
             options,
-            trustedConsensusState1.timeStamp,
+            trustedConsensusState1.timestamp,
             trustedConsensusState1.nextValidatorsHash,
-            current_timestamp,
-
+            currentTimestamp
         );
 
-        _verifyMisbehaviourHeader(
+        verifyMisbehaviourHeader(
             misbehaviour.header2,
             chainId,
             options,
-            trustedConsensusState2.timeStamp,
+            trustedConsensusState2.timestamp,
             trustedConsensusState2.nextValidatorsHash,
-            current_timestamp,
-            
+            currentTimestamp
         );
     }
 
-    function _validateBasic(IMisbehaviorMsgs.Misbehaviour misbehaviour)  {
-        _validateHeaderBasic(misbehaviour.header2);
-        _validateHeaderBasic(misbehaviour.header2);
+    function validateBasic(IMisbehaviourMsgs.Misbehaviour memory misbehaviour) internal pure {
+        validateHeaderBasic(misbehaviour.header1);
+        validateHeaderBasic(misbehaviour.header2);
 
-        if misbehaviour.header1.signedHeader.header.chainId != self.header2.signedHeader.header.chainId
-        {
-            revert (ISP1ICS07TendermintErrors.ChainIdMismatch {
+        if (keccak256(abi.encode(misbehaviour.header1.signedHeader.header.chainId)) != keccak256(abi.encode(misbehaviour.header2.signedHeader.header.chainId))) {
+            revert ISP1ICS07TendermintErrors.ChainIdMismatch ({
                 expected: misbehaviour.header1.signedHeader.header.chainId,
-                actual: misbehaviour.header2.signedHeader.header.chainId,
+                actual: misbehaviour.header2.signedHeader.header.chainId
             });
         }
 
-        if misbehaviour.header1.height() < misbehaviour.header2.height() {
-            revert (
-                ISP1ICS07TendermintErrors.InsufficientMisbehaviourHeaderHeight {
-                    height1: misbehaviour.header1.height,
-                    height2: misbehaviour.header2.height,
-                },
+        IICS07TendermintMsgs.ChainId memory header1ChainId = getChainId(misbehaviour.header1.signedHeader.header.chainId);
+        IICS07TendermintMsgs.ChainId memory header2ChainId = getChainId(misbehaviour.header2.signedHeader.header.chainId);
+
+        IICS02ClientMsgs.Height memory header1Height = IICS02ClientMsgs.Height({
+            revisionNumber: header1ChainId.revisionNumber,
+            revisionHeight: misbehaviour.header1.signedHeader.header.height
+        });
+
+        IICS02ClientMsgs.Height memory header2Height = IICS02ClientMsgs.Height({
+            revisionNumber: header2ChainId.revisionNumber,
+            revisionHeight: misbehaviour.header2.signedHeader.header.height
+        });
+
+        if (HeightCmp.lt(header1Height, header2Height)) {
+            revert ISP1ICS07TendermintErrors.InsufficientMisbehaviourHeaderHeight ({
+                height1: misbehaviour.header1.signedHeader.header.height,
+                height2: misbehaviour.header2.signedHeader.header.height
+            });
+        }
+    }
+
+    function validateHeaderBasic(
+        IICS07TendermintMsgs.Header memory header
+    ) internal pure {
+        IICS07TendermintMsgs.ChainId memory chainId = getChainId(header.signedHeader.header.chainId);
+        if (chainId.revisionNumber != header.trustedHeight.revisionNumber) {
+            revert MismatchedRevisionHeight(
+                chainId.revisionNumber,
+                header.trustedHeight.revisionNumber
             );
         }
 
-
-    }
-
-    function _validateHeaderBasic(IICS07TendermintMsgs.Header header) {
-        if header.height.revisionNumber != header.trustedHeight.revisionNumber {
-            revert (ISP1ICS07TendermintErrors.MismatchedRevisionHeights {
-                expected: header.trustedHeight.revisionNumber,
-                actual: header.height.revisionNumber,
-            });
-        }
+        IICS02ClientMsgs.Height memory height = IICS02ClientMsgs.Height({
+            revisionNumber: chainId.revisionNumber,
+            revisionHeight: header.signedHeader.header.height
+        });
 
         // We need to ensure that the trusted height (representing the
         // height of the header already on chain for which this client update is
         // based on) must be smaller than height of the new header that we're
         // installing.
-        if header.trustedHeight >= header.height {
-            revert (ISP1ICS07TendermintErrors.InvalidHeaderHeight(
-                header.height.revisionHeight,
-            ));
+        if (HeightCmp.ge(header.trustedHeight, height)) {
+            revert InvalidHeaderHeight(
+                height.revisionHeight
+            );
         }
 
-        byte32 validatorsHash = IICS07TendermintMsgs.hashValSet(header.validatorSet);
-
-        if validatorsHash != header.signedHeader.header.validatorsHash {
-            revert (ISP1ICS07TendermintErrors.MismatchedValidatorHashes {
-                expected: header.signedHeader.header.validatorsHash,
-                actual: validatorsHash,
-            });
+        bytes32 valSetHash = Header.hashValSet(header.validatorSet);
+        if (valSetHash != header.signedHeader.header.validatorsHash) {
+            revert ValSetHashMismatch(
+                header.signedHeader.header.validatorsHash,
+                valSetHash
+            );
         }
     }
 
-    function _verifyMisbehaviourHeader (
-        IICS07TendermintMsgs.Header header,
-        IICS07TendermintMsgs.ChainId chainId,
-        IICS07TendermintMsgs.Options options,
-        uint trustedTime,
-        byte32 trustedNextValidatorHash,
-        uint currentTimestamp,
-        verifier: &impl Verifier,
-    )  {
+    function verifyMisbehaviourHeader (
+        IICS07TendermintMsgs.Header memory header,
+        IICS07TendermintMsgs.ChainId memory chainId,
+        IICS07TendermintMsgs.Options memory options,
+        uint128 trustedTime,
+        bytes32 trustedNextValidatorHash,
+        uint128 currentTimestamp
+    ) pure internal {
         // ensure correctness of the trusted next validator set provided by the relayer
-        _checkTrustedNextValidatorSet(header, trustedNextValidatorHash)?;
+        checkTrustedNextValidatorSet(header, trustedNextValidatorHash);
 
         // ensure trusted consensus state is within trusting period
         {
-            let durationSinceConsensusState = currentTimestamp - trustedTime
-                
-            if durationSinceConsensusState >= options.trustingPeriod {
-                revert (ISP1ICS07TendermintErrors.InsufficientTrustingPeriod {
-                    durationSinceConsensusState,
-                    trustingPeriod: options.trustingPeriod,
+            if (currentTimestamp < trustedTime) {
+                revert ISP1ICS07TendermintErrors.InvalidConsensusStateTimestamp({
+                    timestamp: trustedTime
+                });
+            }
+            uint128 durationSinceConsensusState =currentTimestamp - trustedTime;
+            if (durationSinceConsensusState >= options.trustingPeriod) {
+                revert ISP1ICS07TendermintErrors.InsufficientTrustingPeriod ({
+                    durationSinceConsensusState: durationSinceConsensusState,
+                    trustingPeriod: options.trustingPeriod
                 });
             }
         }
 
+        parseChainId(chainId.id);
         // main header verification, delegated to the tendermint-light-client crate.
-        let untrusted_state = header.as_untrusted_block_state();
+        IICS07TendermintMsgs.UntrustedBlockState memory untrustedState = getUntrustedBlockState(header);
+        IICS07TendermintMsgs.TrustedBlockState memory trustedState = getTrustedBlockState(
+            chainId.id,
+            trustedTime,
+            trustedNextValidatorHash,
+            header
+        );
 
-        let tm_chain_id =
-            &chain_id
-                .as_str()
-                .try_into()
-                .map_err(|e| IdentifierError::FailedToParse {
-                    description: format!("chain ID `{chain_id}`: {e:?}"),
-                })?;
-
-        let trusted_state =
-            header.as_trusted_block_state(tm_chain_id, trusted_time, trusted_next_validator_hash)?;
-
-        let current_timestamp = current_timestamp.into_host_time()?;
-
-        verifier
-            .verify_misbehaviour_header(untrusted_state, trusted_state, options, current_timestamp)
-
+        Predicates.verifyValSets(untrustedState);
+        Predicates.verifyAgainstTrusted(untrustedState, trustedState, options.trustingPeriod, currentTimestamp);
+        Predicates.verifyCommitAgainstTrusted(untrustedState, trustedState, options);
     }
 
-    function _checkTrustedNextValidatorSet(
-        IICS07TendermintMsgs.Header header,
-        byte32 trustedNextValidatorHash,
-    ) -> Result<(), ClientError> {
-        byte32 validatorsHash = IICS07TendermintMsgs.hashValSet(header.trustedNextValidatorSet);
+    function checkTrustedNextValidatorSet(
+        IICS07TendermintMsgs.Header memory header,
+        bytes32 trustedNextValidatorHash
+    ) internal pure {
+        bytes32 validatorsHash = Header.hashValSet(header.trustedNextValidatorSet);
 
         if (validatorsHash != trustedNextValidatorHash) {
-            revert (ISP1ICS07TendermintErrors.FailedToVerifyHeader{
+            revert ISP1ICS07TendermintErrors.FailedToVerifyHeader({
                 description: "trusted next validator set hash does not match hash stored on chain"
-            })
+            });
         }
     }
 
-    function _verifyValidatorSets(IICS07TendermintMsgs.UntrustedBlockState untrusted) IICS07TendermintMsgs.Verdict {
-        // Ensure the header validator hashes match the given validators
-        verdict!(self.predicates.validator_sets_match(
-            untrusted.validators,
-            untrusted.signed_header.header.validators_hash,
-        ));
+    function getUntrustedBlockState(
+        IICS07TendermintMsgs.Header memory header
+    ) internal pure returns (IICS07TendermintMsgs.UntrustedBlockState memory) {
+        return IICS07TendermintMsgs.UntrustedBlockState({
+            signedHeader: header.signedHeader,
+            validatorSet: header.validatorSet
+        });
+    }
 
-        // Ensure the header next validator hashes match the given next validators
-        if let Some(untrusted_next_validators) = untrusted.next_validators {
-            verdict!(self.predicates.next_validators_match(
-                untrusted_next_validators,
-                untrusted.signed_header.header.next_validators_hash,
-            ));
+    function getTrustedBlockState(
+        string memory tmChainId,
+        uint128 trustedTime,
+        bytes32 trustedNextValidatorHash,
+        IICS07TendermintMsgs.Header memory header
+    ) internal pure returns (IICS07TendermintMsgs.TrustedBlockState memory) {
+        return IICS07TendermintMsgs.TrustedBlockState({
+            chainId: tmChainId,
+            headerTime: trustedTime,
+            height: header.trustedHeight.revisionHeight,
+            nextValidatorSet: header.trustedNextValidatorSet,
+            nextValidatorHash: trustedNextValidatorHash
+        });
+    }
+
+    function parseChainId(
+        string memory chainId
+    ) internal pure {
+        bytes memory chainIdBytes = bytes(chainId);
+        if (chainIdBytes.length == 0 || chainIdBytes.length > 50) {
+            revert("Invalid chain id length");
         }
 
-        // Ensure the header matches the commit
-        verdict!(self.predicates.header_matches_commit(
-            &untrusted.signed_header.header,
-            untrusted.signed_header.commit.block_id.hash,
-        ));
+        for (uint256 i = 0; i < chainIdBytes.length; i++) {
+            bytes1 b = chainIdBytes[i];
+            
+            // Check if byte is valid: a-z, A-Z, 0-9, -, _, .
+            if (!((b >= 0x61 && b <= 0x7A) ||  // a-z
+                  (b >= 0x41 && b <= 0x5A) ||  // A-Z
+                  (b >= 0x30 && b <= 0x39) ||  // 0-9
+                  (b == 0x2D) ||               // -
+                  (b == 0x5F) ||               // _
+                  (b == 0x2E))) {              // .
+                revert("invalid chain id charset");
+            }
+        }
+    }
 
-        // Additional implementation specific validation
-        verdict!(self.predicates.valid_commit(
-            untrusted.signed_header,
-            untrusted.validators,
-            &self.commit_validator,
-        ));
+    function getChainId(string memory id) pure internal returns (IICS07TendermintMsgs.ChainId memory) {
+        // TODO: validate id
+        bytes memory chainIdBytes = bytes(id);
 
-        Verdict::Success
+        // Find the last occurrence of '-'
+        int256 lastDashIndex = -1;
+        for (uint256 i = chainIdBytes.length-1; i >= 0; i--) {
+            if (chainIdBytes[i] == 0x2D) { // '-' character
+                lastDashIndex = int256(i);
+                break;
+            }
+        }
+
+        if (lastDashIndex == -1) {
+            if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
+                return IICS07TendermintMsgs.ChainId({
+                    id: id, 
+                    revisionNumber: 0
+                });
+            } else {
+                revert("Invalid chain ID length");
+            }
+        }
+
+        uint256 dashIndex = uint256(lastDashIndex);
+        // Extract revision number string
+        bytes memory revisionBytes = new bytes(chainIdBytes.length - dashIndex - 1);
+        for (uint256 i = 0; i < revisionBytes.length; i++) {
+            revisionBytes[i] = chainIdBytes[dashIndex + 1 + i];
+        }
+
+        // Validates the revision number not to start with leading zeros, like "01".
+        // Zero is the only allowed revision number with leading zero.
+        if (revisionBytes.length == 0 || (revisionBytes[0] == 0x30 && revisionBytes.length > 1)) {
+            if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
+                return IICS07TendermintMsgs.ChainId({
+                    id: id, 
+                    revisionNumber: 0
+                });
+            } else {
+                revert("Invalid chain ID length");
+            }
+        }
+
+        (bool success, uint256 parsedRevisionNumber) = Strings.tryParseUint(string(revisionBytes));
+        if (! success || parsedRevisionNumber > type(uint64).max) {
+            if (1 <= chainIdBytes.length && chainIdBytes.length < 64) {
+                return IICS07TendermintMsgs.ChainId({
+                    id: id, 
+                    revisionNumber: 0
+                });
+            } else {
+                revert("Invalid chain ID length");
+            }
+        }
+
+        uint64 revisionNumber = uint64(parsedRevisionNumber);
+        
+        // Extract chain name
+        bytes memory chainNameBytes = new bytes(dashIndex);
+        for (uint256 i = 0; i < dashIndex; i++) {
+            chainNameBytes[i] = chainIdBytes[i];
+        }
+
+        uint256 min = 1;
+        // Prefix must be at most `max_id_length - 21` characters long since the
+        // longest identifier we can construct is `{prefix}-{u64::MAX}` which
+        // extends prefix by 21 characters.
+        uint256 max = 43;
+        if (chainNameBytes.length <= min || chainNameBytes.length >= max) {
+            revert("Invalid chain prefix length");
+        }
+
+        return IICS07TendermintMsgs.ChainId({
+            id: id, 
+            revisionNumber: revisionNumber
+        });
     }
 }
