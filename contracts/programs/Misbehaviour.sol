@@ -15,7 +15,7 @@ import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
  * @dev Contract to verify misbehavior
  * Converted from Rust zkVM code for Cosmos SDK proof verification
  */
-contract Misbehavior {
+contract Misbehaviour {
 
     error MismatchedRevisionHeight(
         uint64 expected,
