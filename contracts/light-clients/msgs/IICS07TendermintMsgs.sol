@@ -96,7 +96,7 @@ interface IICS07TendermintMsgs {
         bytes32 validatorsHash;
         bytes32 nextValidatorsHash;
         bytes32 consensusHash;
-        bytes appHash;
+        bytes32 appHash;
         bool hasLastResultsHash;
         bytes32 lastResultsHash;
         bool hasEvidenceHash;

@@ -12,7 +12,10 @@ interface IUpdateClientMsgs {
     /// @notice The message that is submitted to the updateClient function.
     /// @param sp1Proof The SP1 proof for updating the client.
     struct MsgUpdateClient {
-        ISP1Msgs.SP1Proof sp1Proof;
+        IICS07TendermintMsgs.ClientState clientState;
+        IICS07TendermintMsgs.ConsensusState trustedConsensusState;
+        IICS07TendermintMsgs.Header proposedHeader;
+        uint128 time;
     }
 
     /// @notice The public value output for the sp1 update client program.

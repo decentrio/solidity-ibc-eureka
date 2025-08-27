@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
 import { ILightClientMsgs } from "../msgs/ILightClientMsgs.sol";
+import { IUpdateClientMsgs } from "../light-clients/msgs/IUpdateClientMsgs.sol";
+import { IMisbehaviourMsgs } from "../light-clients/msgs/IMisbehaviourMsgs.sol";
 
 import { IICS02ClientErrors } from "../errors/IICS02ClientErrors.sol";
 import { IICS02Client, IICS02ClientAccessControlled } from "../interfaces/IICS02Client.sol";

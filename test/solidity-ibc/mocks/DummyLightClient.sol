@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 // solhint-disable no-empty-blocks
 
+import { IMisbehaviourMsgs } from "../../../contracts/light-clients/msgs/IMisbehaviourMsgs.sol";
+import { IUpdateClientMsgs } from "../../../contracts/light-clients/msgs/IUpdateClientMsgs.sol";
 import { ILightClientMsgs } from "../../../contracts/msgs/ILightClientMsgs.sol";
 import { ILightClient } from "../../../contracts/interfaces/ILightClient.sol";
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IMisbehaviourMsgs } from "../light-clients/msgs/IMisbehaviourMsgs.sol";
 import { IICS07TendermintMsgs } from "../light-clients/msgs/IICS07TendermintMsgs.sol";
 import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
@@ -15,7 +16,7 @@ import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
  * @dev Contract to verify misbehavior
  * Converted from Rust zkVM code for Cosmos SDK proof verification
  */
-contract Misbehaviour {
+contract Misbehaviour is IMisbehaviour {
 
     error MismatchedRevisionHeight(
         uint64 expected,
@@ -37,17 +38,17 @@ contract Misbehaviour {
     error CheckForMisbehaviourFailed();
     error MisbehaviourNotDetected();
 
-    function checkForMisbehaviour (
+    function misbehaviour (
         IICS07TendermintMsgs.ClientState memory clientState,
-        IMisbehaviourMsgs.Misbehaviour memory misbehaviour,
+        IMisbehaviourMsgs.Misbehaviour memory misbehaviour_,
         IICS07TendermintMsgs.ConsensusState memory trustedConsensusState1,
         IICS07TendermintMsgs.ConsensusState memory trustedConsensusState2,
         uint128 time
-    ) public returns (IMisbehaviourMsgs.MisbehaviourOutput memory output) {
+    ) external pure returns (IMisbehaviourMsgs.MisbehaviourOutput memory) {
         // check client state id and misbehaviour chain id
-        require(keccak256(abi.encode((clientState.chainId))) == keccak256(abi.encode(misbehaviour.header1.signedHeader.header.chainId)), ChainIdMismatch());
+        require(keccak256(abi.encode((clientState.chainId))) == keccak256(abi.encode(misbehaviour_.header1.signedHeader.header.chainId)), ChainIdMismatch());
 
-        validateBasic(misbehaviour);
+        validateBasic(misbehaviour_);
 
         IICS07TendermintMsgs.Options memory options = IICS07TendermintMsgs.Options({
             trustThreshold: clientState.trustLevel,
@@ -56,56 +57,66 @@ contract Misbehaviour {
         });
 
         // TODO: convert timestamp nanos to secs
-        uint128 currentTimestamp = uint128(block.timestamp);
         IICS07TendermintMsgs.ChainId memory chainId = getChainId(clientState.chainId);
 
         verifyMisbehaviourHeader(
-            misbehaviour.header1,
+            misbehaviour_.header1,
             chainId,
             options,
             trustedConsensusState1.timestamp,
             trustedConsensusState1.nextValidatorsHash,
-            currentTimestamp
+            time
         );
 
         verifyMisbehaviourHeader(
-            misbehaviour.header2,
+            misbehaviour_.header2,
             chainId,
             options,
             trustedConsensusState2.timestamp,
             trustedConsensusState2.nextValidatorsHash,
-            currentTimestamp
+            time
         );
+        IMisbehaviourMsgs.MisbehaviourOutput memory output = IMisbehaviourMsgs.MisbehaviourOutput({
+            trustedHeight1: IICS02ClientMsgs.Height({
+                revisionNumber: chainId.revisionNumber,
+                revisionHeight: misbehaviour_.header1.signedHeader.header.height
+            }),
+            trustedHeight2: IICS02ClientMsgs.Height({
+                revisionNumber: chainId.revisionNumber,
+                revisionHeight: misbehaviour_.header2.signedHeader.header.height
+            })
+        });
+        return output;
     }
 
-    function validateBasic(IMisbehaviourMsgs.Misbehaviour memory misbehaviour) internal pure {
-        validateHeaderBasic(misbehaviour.header1);
-        validateHeaderBasic(misbehaviour.header2);
+    function validateBasic(IMisbehaviourMsgs.Misbehaviour memory misbehaviour_) internal pure {
+        validateHeaderBasic(misbehaviour_.header1);
+        validateHeaderBasic(misbehaviour_.header2);
 
-        if (keccak256(abi.encode(misbehaviour.header1.signedHeader.header.chainId)) != keccak256(abi.encode(misbehaviour.header2.signedHeader.header.chainId))) {
+        if (keccak256(abi.encode(misbehaviour_.header1.signedHeader.header.chainId)) != keccak256(abi.encode(misbehaviour_.header2.signedHeader.header.chainId))) {
             revert ISP1ICS07TendermintErrors.ChainIdMismatch ({
-                expected: misbehaviour.header1.signedHeader.header.chainId,
-                actual: misbehaviour.header2.signedHeader.header.chainId
+                expected: misbehaviour_.header1.signedHeader.header.chainId,
+                actual: misbehaviour_.header2.signedHeader.header.chainId
             });
         }
 
-        IICS07TendermintMsgs.ChainId memory header1ChainId = getChainId(misbehaviour.header1.signedHeader.header.chainId);
-        IICS07TendermintMsgs.ChainId memory header2ChainId = getChainId(misbehaviour.header2.signedHeader.header.chainId);
+        IICS07TendermintMsgs.ChainId memory header1ChainId = getChainId(misbehaviour_.header1.signedHeader.header.chainId);
+        IICS07TendermintMsgs.ChainId memory header2ChainId = getChainId(misbehaviour_.header2.signedHeader.header.chainId);
 
         IICS02ClientMsgs.Height memory header1Height = IICS02ClientMsgs.Height({
             revisionNumber: header1ChainId.revisionNumber,
-            revisionHeight: misbehaviour.header1.signedHeader.header.height
+            revisionHeight: misbehaviour_.header1.signedHeader.header.height
         });
 
         IICS02ClientMsgs.Height memory header2Height = IICS02ClientMsgs.Height({
             revisionNumber: header2ChainId.revisionNumber,
-            revisionHeight: misbehaviour.header2.signedHeader.header.height
+            revisionHeight: misbehaviour_.header2.signedHeader.header.height
         });
 
         if (HeightCmp.lt(header1Height, header2Height)) {
             revert ISP1ICS07TendermintErrors.InsufficientMisbehaviourHeaderHeight ({
-                height1: misbehaviour.header1.signedHeader.header.height,
-                height2: misbehaviour.header2.signedHeader.header.height
+                height1: misbehaviour_.header1.signedHeader.header.height,
+                height2: misbehaviour_.header2.signedHeader.header.height
             });
         }
     }

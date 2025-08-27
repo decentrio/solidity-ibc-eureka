@@ -34,11 +34,11 @@ contract UpdateClient is IUpdateClient {
     );
 
     function updateClient(
-        IICS07TendermintMsgs.ClientState memory clientState,
-        IICS07TendermintMsgs.ConsensusState memory trustedConsensusState,
-        IICS07TendermintMsgs.Header memory proposedHeader,
+        IICS07TendermintMsgs.ClientState calldata clientState,
+        IICS07TendermintMsgs.ConsensusState calldata trustedConsensusState,
+        IICS07TendermintMsgs.Header calldata proposedHeader,
         uint128 time
-    ) view external {
+    ) view external returns (IUpdateClientMsgs.UpdateClientOutput memory) {
         IICS07TendermintMsgs.ChainId memory chainId = getChainId(clientState.chainId);
         IICS07TendermintMsgs.Options memory options = IICS07TendermintMsgs.Options({
             trustThreshold: clientState.trustLevel,
@@ -61,6 +61,26 @@ contract UpdateClient is IUpdateClient {
             path,
             trustedConsensusState
         );
+
+        IICS07TendermintMsgs.ConsensusState memory newConsensusState = IICS07TendermintMsgs.ConsensusState({
+            timestamp: proposedHeader.signedHeader.header.time,
+            root: proposedHeader.signedHeader.header.appHash,
+            nextValidatorsHash: proposedHeader.signedHeader.header.nextValidatorsHash
+        });
+
+        IICS02ClientMsgs.Height memory newHeight = IICS02ClientMsgs.Height({
+            revisionNumber: chainId.revisionNumber,
+            revisionHeight: proposedHeader.signedHeader.header.height
+        });
+        IUpdateClientMsgs.UpdateClientOutput memory output = IUpdateClientMsgs.UpdateClientOutput({
+            clientState: clientState,
+            trustedConsensusState: trustedConsensusState,
+            newConsensusState: newConsensusState,
+            time: time,
+            trustedHeight: proposedHeader.trustedHeight,
+            newHeight: newHeight
+        });
+        return output;
     }
 
     function verifyHeader(

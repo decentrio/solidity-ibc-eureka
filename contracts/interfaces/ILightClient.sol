@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import { IUpdateClientMsgs } from "../light-clients/msgs/IUpdateClientMsgs.sol";
+import { IMisbehaviourMsgs } from "../light-clients/msgs/IMisbehaviourMsgs.sol";
 import { ILightClientMsgs } from "../msgs/ILightClientMsgs.sol";
 
 /// @title Light Client Interface
 /// @notice Interface for all IBC Eureka light clients to implement.
 interface ILightClient {
     /// @notice Updating the client and consensus state
-    /// @param updateMsg The encoded update message e.g., an SP1 proof.
+    /// @param updateClientMsg The update client message.
     /// @return The result of the update operation
-    function updateClient(bytes calldata updateMsg) external returns (ILightClientMsgs.UpdateResult);
+    function updateClient(bytes calldata updateClientMsg) external returns (ILightClientMsgs.UpdateResult);
 
     /// @notice Querying the membership of a key-value pair
     /// @dev Notice that this message is not view, as it may update the client state for caching purposes.

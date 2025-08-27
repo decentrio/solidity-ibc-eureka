@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import { IMembershipMsgs } from "../msgs/IMembershipMsgs.sol";
+import { IMembershipMsgs } from "../light-clients/msgs/IMembershipMsgs.sol";
 import { IMembership } from "../interfaces/IMembership.sol";
 
 import "@openzeppelin-contracts/utils/math/Math.sol";
@@ -48,8 +48,8 @@ contract Membership  is IMembership {
      */
     function membership(
         bytes32 appHash,
-        IMembershipMsgs.KVPair[] memory kvPairs,
-        IMembershipMsgs.MerkleProof[] memory merkleProofs
+        IMembershipMsgs.KVPair[] calldata kvPairs,
+        IMembershipMsgs.MerkleProof[] calldata merkleProofs
     ) public returns (IMembershipMsgs.MembershipOutput memory output) {
         if (kvPairs.length == 0) {
             revert EmptyRequest();
