@@ -4,20 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
-	"strconv"
-	"strings"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	updateClientContract "operator/bindings/UpdateClient"
+	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	tendermintClient "operator/client"
+	"operator/keys"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
-	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 )
 
 const (
@@ -28,6 +31,7 @@ const (
 	flagTrustLevel     = "trust-level"
 	flagTrustingPeriod = "trusting-period"
 	flagTrustedBlock   = "trusted-block"
+	flagMembership     = "membership"
 )
 
 func main() {
@@ -82,103 +86,26 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				return fmt.Errorf("error loading .env file: %v", err)
 			}
 
-			// Read RPC endpoint from environment variable
-			rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
-			if rpcEndpoint == "" {
-				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
-			}
-			client, err := rpchttp.New(rpcEndpoint, "/websocket")
-			if err != nil {
-				return fmt.Errorf("failed to create RPC client: %w", err)
-			}
-
 			trustedBlock, err := cmd.Flags().GetInt64(flagTrustedBlock)
 			if err != nil {
 				return fmt.Errorf("failed to get trusted block: %w", err)
 			}
-
-			status, err := client.Status(context.Background())
-			if err != nil {
-				return fmt.Errorf("failed to get status: %w", err)
-			}
-
-			if trustedBlock == 0 {
-				// get latest block
-				trustedBlock = status.SyncInfo.LatestBlockHeight
-			}
-
-			trustedLightBlock, err := tendermintClient.GetLightBlock(client, trustedBlock)
-			if err != nil {
-				return fmt.Errorf("failed to get light block: %w", err)
-			}
-			_ = trustedLightBlock
-
-			unbondingPeriod, err := tendermintClient.GetUnbondingTime(client)
-			if err != nil {
-				return fmt.Errorf("failed to get unbonding time: %w", err)
-			}
-
 			trustingPeriod, err := cmd.Flags().GetUint32(flagTrustingPeriod)
 			if err != nil {
 				return fmt.Errorf("failed to get trusting period: %w", err)
 			}
-
-			if trustingPeriod == 0 {
-				trustingPeriod = uint32(unbondingPeriod * 2 / 3)
-			}
-
-			if trustingPeriod > uint32(unbondingPeriod) {
-				return fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
-			}
-
-			chainId := trustedLightBlock.SignedHeader.Header.ChainID
-			revision := clienttypes.ParseChainID(chainId)
 			trustLevel, err := cmd.Flags().GetString(flagTrustLevel)
 			if err != nil {
 				return fmt.Errorf("failed to get trust level from flag: %w", err)
 			}
-			trustThreshold, err := parseTrustThreshold(trustLevel)
-			if err != nil {
-				return fmt.Errorf("failed to parse trust level: %w", err)
-			}
-
 			proofType, err := cmd.Flags().GetString(flagProofType)
 			if err != nil {
 				return fmt.Errorf("failed to get proof type from flag: %w", err)
 			}
 
-			var zkAlgorithm tendermintClient.SupportedZkAlgorithm
-			switch proofType {
-			case "groth16":
-				zkAlgorithm = tendermintClient.Groth16
-			case "plonk":
-				zkAlgorithm = tendermintClient.Plonk
-			default:
-				return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
-			}
-
-			clientState := updateClientContract.IICS07TendermintMsgsClientState{
-				ChainId:    chainId,
-				TrustLevel: trustThreshold,
-				LatestHeight: updateClientContract.IICS02ClientMsgsHeight{
-					RevisionNumber: revision,
-					RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
-				},
-				IsFrozen:        false,
-				ZkAlgorithm:     uint8(zkAlgorithm),
-				TrustingPeriod:  trustingPeriod,
-				UnbondingPeriod: uint32(unbondingPeriod),
-			}
-
-			consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
-				Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
-				Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
-				NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
-			}
-
-			genesis := tendermintClient.SP1ICS07TendermintGenesis{
-				TrustedClientState:    clientState,
-				TrustedConsensusState: consensusState,
+			genesis, err := tendermintClient.GetGenesis(trustedBlock, trustingPeriod, trustLevel, proofType)
+			if err != nil {
+				return fmt.Errorf("failed to get genesis: %w", err)
 			}
 
 			outputType, err := cmd.Flags().GetString(flagOutput)
@@ -261,104 +188,99 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			}
 
 			// Read RPC endpoint from environment variable
-			rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
-			if rpcEndpoint == "" {
-				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			ethRpcEndpoint := os.Getenv("ETH_RPC_URL")
+			if ethRpcEndpoint == "" {
+				return fmt.Errorf("ETH_RPC_URL environment variable is required in .env file")
 			}
-			client, err := rpchttp.New(rpcEndpoint, "/websocket")
+
+			hexAddress := os.Getenv("CONTRACT_ADDRESS")
+			if hexAddress == "" {
+				return fmt.Errorf("CONTRACT_ADDRESS environment variable is required in .env file")
+			}
+
+			privKey := os.Getenv("PRIVATE_KEY")
+			if privKey == "" {
+				return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
+			}
+			privateKey, err := keys.RestoreKey(privKey)
 			if err != nil {
-				return fmt.Errorf("failed to create RPC client: %w", err)
+				return fmt.Errorf("failed to restore private key: %w", err)
+			}
+
+			chainIdEth := os.Getenv("CHAIN_ID")
+			if chainIdEth == "" {
+				return fmt.Errorf("CHAIN_ID environment variable is required in .env file")
+			}
+
+			chainIdInt := big.NewInt(0)
+			chainIdInt, ok := chainIdInt.SetString(chainIdEth, 10)
+			if !ok {
+				return fmt.Errorf("invalid chain id: %v", err)
+			}
+
+			ethClient, err := ethclient.Dial(ethRpcEndpoint)
+			if err != nil {
+				return fmt.Errorf("failed to create Ethereum client: %w", err)
 			}
 
 			trustedBlock, err := cmd.Flags().GetInt64(flagTrustedBlock)
 			if err != nil {
 				return fmt.Errorf("failed to get trusted block: %w", err)
 			}
-
-			status, err := client.Status(context.Background())
-			if err != nil {
-				return fmt.Errorf("failed to get status: %w", err)
-			}
-
-			if trustedBlock == 0 {
-				// get latest block
-				trustedBlock = status.SyncInfo.LatestBlockHeight
-			}
-
-			trustedLightBlock, err := tendermintClient.GetLightBlock(client, trustedBlock)
-			if err != nil {
-				return fmt.Errorf("failed to get light block: %w", err)
-			}
-			_ = trustedLightBlock
-
-			unbondingPeriod, err := tendermintClient.GetUnbondingTime(client)
-			if err != nil {
-				return fmt.Errorf("failed to get unbonding time: %w", err)
-			}
-
 			trustingPeriod, err := cmd.Flags().GetUint32(flagTrustingPeriod)
 			if err != nil {
 				return fmt.Errorf("failed to get trusting period: %w", err)
 			}
-
-			if trustingPeriod == 0 {
-				trustingPeriod = uint32(unbondingPeriod * 2 / 3)
-			}
-
-			if trustingPeriod > uint32(unbondingPeriod) {
-				return fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
-			}
-
-			chainId := trustedLightBlock.SignedHeader.Header.ChainID
-			revision := clienttypes.ParseChainID(chainId)
 			trustLevel, err := cmd.Flags().GetString(flagTrustLevel)
 			if err != nil {
 				return fmt.Errorf("failed to get trust level from flag: %w", err)
 			}
-			trustThreshold, err := parseTrustThreshold(trustLevel)
-			if err != nil {
-				return fmt.Errorf("failed to parse trust level: %w", err)
-			}
-
 			proofType, err := cmd.Flags().GetString(flagProofType)
 			if err != nil {
 				return fmt.Errorf("failed to get proof type from flag: %w", err)
 			}
-
-			var zkAlgorithm tendermintClient.SupportedZkAlgorithm
-			switch proofType {
-			case "groth16":
-				zkAlgorithm = tendermintClient.Groth16
-			case "plonk":
-				zkAlgorithm = tendermintClient.Plonk
-			default:
-				return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
+			genesis, err := tendermintClient.GetGenesis(trustedBlock, trustingPeriod, trustLevel, proofType)
+			if err != nil {
+				return fmt.Errorf("failed to get genesis: %w", err)
 			}
 
-			clientState := updateClientContract.IICS07TendermintMsgsClientState{
-				ChainId:    chainId,
-				TrustLevel: trustThreshold,
-				LatestHeight: updateClientContract.IICS02ClientMsgsHeight{
-					RevisionNumber: revision,
-					RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
-				},
-				IsFrozen:        false,
-				ZkAlgorithm:     uint8(zkAlgorithm),
-				TrustingPeriod:  trustingPeriod,
-				UnbondingPeriod: uint32(unbondingPeriod),
+			tendermintAddr := common.HexToAddress(hexAddress)
+			ics07Tendermint, err := tendermintContract.NewContractSP1ICS07Tendermint(
+				tendermintAddr,
+				ethClient,
+			)
+
+			isMembership, err := cmd.Flags().GetBool(flagMembership)
+			if err != nil {
+				return fmt.Errorf("failed to get membership flag: %w", err)
 			}
 
-			consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
-				Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
-				Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
-				NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
+			publicKey, err := keys.PublicKey(privateKey)
+			if err != nil {
+				log.Fatal(err)
 			}
 
-			genesis := tendermintClient.SP1ICS07TendermintGenesis{
-				TrustedClientState:    clientState,
-				TrustedConsensusState: consensusState,
+			fromAddress := crypto.PubkeyToAddress(*publicKey)
+			nonce, err := ethClient.PendingNonceAt(context.Background(), fromAddress)
+			if err != nil {
+				log.Fatal(err)
+			}
+			gasPrice, err := ethClient.SuggestGasPrice(context.Background())
+			if err != nil {
+				log.Fatal(err)
 			}
 
+			auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainIdInt)
+			if err != nil {
+				return fmt.Errorf("failed to create auth transactor: %w", err)
+			}
+			auth.Nonce = big.NewInt(int64(nonce))
+			auth.Value = big.NewInt(0)     // in wei
+			auth.GasLimit = uint64(300000) // in units
+			auth.GasPrice = gasPrice
+
+			// TODO: Sign and send the transaction
+			
 			return nil
 		},
 	}
@@ -368,6 +290,7 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 	cmd.Flags().String(flagOutputPath, "./data/genesis.json", "the path to the output file for the genesis state")
 	cmd.Flags().String(flagTrustLevel, "2/3", "the trust level for the genesis state (e.g., 2/3)")
 	cmd.Flags().Uint32(flagTrustingPeriod, 0, "the trusting period for the genesis state")
+	cmd.Flags().Bool(flagMembership, true, "verify membership/non-membership proof")
 	return cmd
 }
 
@@ -380,37 +303,4 @@ func Misbehaviour(logger *zap.Logger) *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-// parseTrustThreshold parses a trust threshold fraction string like "2/3"
-func parseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
-	parts := strings.Split(value, "/")
-	if len(parts) != 2 {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
-	}
-
-	numerator, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
-	}
-
-	denominator, err := strconv.ParseUint(parts[1], 10, 64)
-	if err != nil {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
-	}
-
-	if denominator == 0 {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
-	}
-
-	return updateClientContract.IICS07TendermintMsgsTrustThreshold{
-		Numerator:   uint8(numerator),
-		Denominator: uint8(denominator),
-	}, nil
-}
-
-func bytesToBytes32(data []byte) [32]byte {
-	var result [32]byte
-	copy(result[:], data)
-	return result
 }

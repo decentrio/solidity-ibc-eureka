@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
+	"os"
 	"slices"
+	"strconv"
+	"strings"
 
 	updateClientContract "operator/bindings/UpdateClient"
 
@@ -14,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 )
 
 const MAX_TOTAL_VOTING_POWER = math.MaxInt64 / 8
@@ -48,6 +53,90 @@ func (s SupportedZkAlgorithm) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, proofType string) (*SP1ICS07TendermintGenesis, error) {
+	// Read RPC endpoint from environment variable
+	rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+	if rpcEndpoint == "" {
+		return nil, fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+	}
+	client, err := rpchttp.New(rpcEndpoint, "/websocket")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC client: %w", err)
+	}
+
+	status, err := client.Status(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	if trustedBlock == 0 {
+		// get latest block
+		trustedBlock = status.SyncInfo.LatestBlockHeight
+	}
+
+	trustedLightBlock, err := GetLightBlock(client, trustedBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get light block: %w", err)
+	}
+	_ = trustedLightBlock
+
+	unbondingPeriod, err := GetUnbondingTime(client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unbonding time: %w", err)
+	}
+
+	if trustingPeriod == 0 {
+		trustingPeriod = uint32(unbondingPeriod * 2 / 3)
+	}
+
+	if trustingPeriod > uint32(unbondingPeriod) {
+		return nil, fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
+	}
+
+	chainId := trustedLightBlock.SignedHeader.Header.ChainID
+	revision := clienttypes.ParseChainID(chainId)
+
+	trustThreshold, err := parseTrustThreshold(trustLevel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse trust level: %w", err)
+	}
+
+	var zkAlgorithm SupportedZkAlgorithm
+	switch proofType {
+	case "groth16":
+		zkAlgorithm = Groth16
+	case "plonk":
+		zkAlgorithm = Plonk
+	default:
+		return nil, fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
+	}
+
+	clientState := updateClientContract.IICS07TendermintMsgsClientState{
+		ChainId:    chainId,
+		TrustLevel: trustThreshold,
+		LatestHeight: updateClientContract.IICS02ClientMsgsHeight{
+			RevisionNumber: revision,
+			RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
+		},
+		IsFrozen:        false,
+		ZkAlgorithm:     uint8(zkAlgorithm),
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: uint32(unbondingPeriod),
+	}
+
+	consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
+		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
+		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
+		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
+	}
+
+	genesis := SP1ICS07TendermintGenesis{
+		TrustedClientState:    clientState,
+		TrustedConsensusState: consensusState,
+	}
+	return &genesis, nil
 }
 
 func GetUnbondingTime(client *rpchttp.HTTP) (float64, error) {
@@ -135,4 +224,37 @@ func GetLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
 		BlockHeight:  height,
 	}, nil
 
+}
+
+// parseTrustThreshold parses a trust threshold fraction string like "2/3"
+func parseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 {
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
+	}
+
+	numerator, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
+	}
+
+	denominator, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
+	}
+
+	if denominator == 0 {
+		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
+	}
+
+	return updateClientContract.IICS07TendermintMsgsTrustThreshold{
+		Numerator:   uint8(numerator),
+		Denominator: uint8(denominator),
+	}, nil
+}
+
+func bytesToBytes32(data []byte) [32]byte {
+	var result [32]byte
+	copy(result[:], data)
+	return result
 }
