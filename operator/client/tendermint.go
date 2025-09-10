@@ -10,18 +10,26 @@ import (
 	"strconv"
 	"strings"
 
+	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateClientContract "operator/bindings/UpdateClient"
 
 	"github.com/cometbft/cometbft/p2p"
+	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	commettypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v10/modules/core/23-commitment/types"
+	ics23 "github.com/cosmos/ics23/go"
 )
 
-const MAX_TOTAL_VOTING_POWER = math.MaxInt64 / 8
+const (
+	MAX_TOTAL_VOTING_POWER = math.MaxInt64 / 8
+	ProofType_EXIST        = 0
+	ProofType_NON_EXIST    = 1
+)
 
 type LightBlock struct {
 	SignedHeader commettypes.SignedHeader
@@ -98,7 +106,7 @@ func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, pr
 	chainId := trustedLightBlock.SignedHeader.Header.ChainID
 	revision := clienttypes.ParseChainID(chainId)
 
-	trustThreshold, err := parseTrustThreshold(trustLevel)
+	trustThreshold, err := ParseTrustThreshold(trustLevel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse trust level: %w", err)
 	}
@@ -226,8 +234,44 @@ func GetLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
 
 }
 
+func ProvePath(client *rpchttp.HTTP, height int64, path [][]byte) ([]byte, *commitmenttypes.MerkleProof, error) {
+	queryPath := fmt.Sprintf("store/%s/key", string(path[0]))
+	request := slices.Concat(path[1:]...)
+
+	// Make ABCI query
+	result, err := client.ABCIQueryWithOptions(context.Background(), queryPath, request, rpcclient.ABCIQueryOptions{
+		// Proof height should be the block before the target block.
+		Height: height - 1,
+		Prove:  true,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("ABCI query failed: %w", err)
+	}
+
+	if result.Response.Code != 0 {
+		return nil, nil, fmt.Errorf("query failed with code %d: %s", result.Response.Code, result.Response.Log)
+	}
+
+	if result.Response.Height != height-1 {
+		return nil, nil, fmt.Errorf("proof height mismatch")
+	}
+
+	if !slices.Equal(result.Response.Key, path[1]) {
+		return nil, nil, fmt.Errorf("key mismatch")
+	}
+
+	proof, err := commitmenttypes.ConvertProofs(result.Response.ProofOps)
+	if err != nil {
+		return nil, nil, fmt.Errorf("proof could not be retrieved: %w", err)
+	}
+	if len(proof.Proofs) == 0 {
+		return nil, nil, fmt.Errorf("proof is empty")
+	}
+	return result.Response.Value, &proof, nil
+}
+
 // parseTrustThreshold parses a trust threshold fraction string like "2/3"
-func parseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
+func ParseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 {
 		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
@@ -251,6 +295,166 @@ func parseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsg
 		Numerator:   uint8(numerator),
 		Denominator: uint8(denominator),
 	}, nil
+}
+
+func ParseCommitmentProof(proof *ics23.CommitmentProof) (*tendermintContract.IMembershipMsgsCommitmentProof, error) {
+	if proof == nil {
+		return nil, fmt.Errorf("proof is nil")
+	}
+
+	var parsedProof *tendermintContract.IMembershipMsgsCommitmentProof
+	switch p := proof.Proof.(type) {
+	case *ics23.CommitmentProof_Exist:
+		parsedProof = &tendermintContract.IMembershipMsgsCommitmentProof{
+			ProofType: ProofType_EXIST,
+			ExistenceProof: tendermintContract.IMembershipMsgsExistenceProof{
+				Key:   p.Exist.Key,
+				Value: bytesToBytes32(p.Exist.Value),
+				Leaf:  ParseLeafOp(p.Exist.Leaf),
+				Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+			},
+			NonExistenceProof: tendermintContract.IMembershipMsgsNonExistenceProof{},
+		}
+
+		for _, innerOp := range p.Exist.Path {
+			parsedProof.ExistenceProof.Path = append(parsedProof.ExistenceProof.Path, ParseInnerOp(innerOp))
+		}
+	case *ics23.CommitmentProof_Nonexist:
+		if p.Nonexist.Left == nil || p.Nonexist.Right == nil {
+			return nil, fmt.Errorf("non-existence proof must at least left or right existence proofs")
+		}
+		parsedProof = &tendermintContract.IMembershipMsgsCommitmentProof{
+			ProofType:      ProofType_NON_EXIST,
+			ExistenceProof: tendermintContract.IMembershipMsgsExistenceProof{},
+			NonExistenceProof: tendermintContract.IMembershipMsgsNonExistenceProof{
+				Key:      p.Nonexist.Key,
+				HasLeft:  false,
+				Left:     tendermintContract.IMembershipMsgsExistenceProof{},
+				HasRight: false,
+				Right:    tendermintContract.IMembershipMsgsExistenceProof{},
+			},
+		}
+
+		if p.Nonexist.Left != nil {
+			parsedProof.NonExistenceProof.HasLeft = true
+			parsedProof.NonExistenceProof.Left = tendermintContract.IMembershipMsgsExistenceProof{
+				Key:   p.Nonexist.Left.Key,
+				Value: bytesToBytes32(p.Nonexist.Left.Value),
+				Leaf:  ParseLeafOp(p.Nonexist.Left.Leaf),
+				Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+			}
+			for _, innerOp := range p.Nonexist.Left.Path {
+				parsedProof.NonExistenceProof.Left.Path = append(parsedProof.NonExistenceProof.Left.Path, ParseInnerOp(innerOp))
+			}
+		}
+
+		if p.Nonexist.Right != nil {
+			parsedProof.NonExistenceProof.HasRight = true
+			parsedProof.NonExistenceProof.Right = tendermintContract.IMembershipMsgsExistenceProof{
+				Key:   p.Nonexist.Right.Key,
+				Value: bytesToBytes32(p.Nonexist.Right.Value),
+				Leaf:  ParseLeafOp(p.Nonexist.Right.Leaf),
+				Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+			}
+			for _, innerOp := range p.Nonexist.Right.Path {
+				parsedProof.NonExistenceProof.Right.Path = append(parsedProof.NonExistenceProof.Right.Path, ParseInnerOp(innerOp))
+			}
+		}
+
+	case *ics23.CommitmentProof_Batch:
+		if len(p.Batch.GetEntries()) == 0 || p.Batch.GetEntries()[0] == nil {
+			return nil, fmt.Errorf("batch proof has empty entry")
+		}
+
+		if e := p.Batch.GetEntries()[0].GetExist(); e != nil {
+			parsedProof = &tendermintContract.IMembershipMsgsCommitmentProof{
+				ProofType: ProofType_EXIST,
+				ExistenceProof: tendermintContract.IMembershipMsgsExistenceProof{
+					Key:   e.Key,
+					Value: bytesToBytes32(e.Value),
+					Leaf:  ParseLeafOp(e.Leaf),
+					Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+				},
+				NonExistenceProof: tendermintContract.IMembershipMsgsNonExistenceProof{},
+			}
+
+			for _, innerOp := range e.Path {
+				parsedProof.ExistenceProof.Path = append(parsedProof.ExistenceProof.Path, ParseInnerOp(innerOp))
+			}
+		}
+
+		if n := p.Batch.GetEntries()[0].GetNonexist(); n != nil {
+			parsedProof = &tendermintContract.IMembershipMsgsCommitmentProof{
+				ProofType:      ProofType_NON_EXIST,
+				ExistenceProof: tendermintContract.IMembershipMsgsExistenceProof{},
+				NonExistenceProof: tendermintContract.IMembershipMsgsNonExistenceProof{
+					Key:      n.Key,
+					HasLeft:  false,
+					Left:     tendermintContract.IMembershipMsgsExistenceProof{},
+					HasRight: false,
+					Right:    tendermintContract.IMembershipMsgsExistenceProof{},
+				},
+			}
+
+			if n.Left != nil {
+				parsedProof.NonExistenceProof.HasLeft = true
+				parsedProof.NonExistenceProof.Left = tendermintContract.IMembershipMsgsExistenceProof{
+					Key:   n.Left.Key,
+					Value: bytesToBytes32(n.Left.Value),
+					Leaf:  ParseLeafOp(n.Left.Leaf),
+					Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+				}
+				for _, innerOp := range n.Left.Path {
+					parsedProof.NonExistenceProof.Left.Path = append(parsedProof.NonExistenceProof.Left.Path, ParseInnerOp(innerOp))
+				}
+			}
+
+			if n.Right != nil {
+				parsedProof.NonExistenceProof.HasRight = true
+				parsedProof.NonExistenceProof.Right = tendermintContract.IMembershipMsgsExistenceProof{
+					Key:   n.Right.Key,
+					Value: bytesToBytes32(n.Right.Value),
+					Leaf:  ParseLeafOp(n.Right.Leaf),
+					Path:  []tendermintContract.IMembershipMsgsInnerOp{},
+				}
+				for _, innerOp := range n.Right.Path {
+					parsedProof.NonExistenceProof.Right.Path = append(parsedProof.NonExistenceProof.Right.Path, ParseInnerOp(innerOp))
+				}
+			}
+		}
+	case *ics23.CommitmentProof_Compressed:
+		decompressedProof := ics23.Decompress(proof)
+		return ParseCommitmentProof(decompressedProof)
+	default:
+		return nil, fmt.Errorf("unrecognized proof type")
+	}
+
+	return parsedProof, nil
+}
+
+func ParseLeafOp(leafOp *ics23.LeafOp) tendermintContract.IMembershipMsgsLeafOp {
+	if leafOp == nil {
+		return tendermintContract.IMembershipMsgsLeafOp{}
+	}
+
+	return tendermintContract.IMembershipMsgsLeafOp{
+		HashOp:       uint8(leafOp.Hash),
+		PrehashKey:   uint8(leafOp.PrehashKey),
+		PrehashValue: uint8(leafOp.PrehashValue),
+		Prefix:       leafOp.Prefix,
+	}
+}
+
+func ParseInnerOp(innerOp *ics23.InnerOp) tendermintContract.IMembershipMsgsInnerOp {
+	if innerOp == nil {
+		return tendermintContract.IMembershipMsgsInnerOp{}
+	}
+
+	return tendermintContract.IMembershipMsgsInnerOp{
+		HashOp: uint8(innerOp.Hash),
+		Prefix: innerOp.Prefix,
+		Suffix: innerOp.Suffix,
+	}
 }
 
 func bytesToBytes32(data []byte) [32]byte {

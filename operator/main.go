@@ -7,7 +7,9 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"strconv"
 
+	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -19,8 +21,7 @@ import (
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	tendermintClient "operator/client"
 	"operator/keys"
-
-	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	"operator/runner"
 )
 
 const (
@@ -180,7 +181,8 @@ func UpdateClientCmd(logger *zap.Logger) *cobra.Command {
 func MembershipCmd(logger *zap.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "membership",
-		Short: "membership",
+		Short: "membership <key_path> <is_base64> <membership_type>",
+		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := godotenv.Load()
 			if err != nil {
@@ -188,6 +190,14 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			}
 
 			// Read RPC endpoint from environment variable
+			tendermintRpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+			if tendermintRpcEndpoint == "" {
+				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			}
+			tendermintRpcClient, err := rpchttp.New(tendermintRpcEndpoint, "/websocket")
+			if err != nil {
+				return fmt.Errorf("failed to create RPC client: %w", err)
+			}
 			ethRpcEndpoint := os.Getenv("ETH_RPC_URL")
 			if ethRpcEndpoint == "" {
 				return fmt.Errorf("ETH_RPC_URL environment variable is required in .env file")
@@ -249,6 +259,9 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 				tendermintAddr,
 				ethClient,
 			)
+			if err != nil {
+				return fmt.Errorf("failed to create ICS07 Tendermint contract: %w", err)
+			}
 
 			isMembership, err := cmd.Flags().GetBool(flagMembership)
 			if err != nil {
@@ -279,8 +292,46 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			auth.GasLimit = uint64(300000) // in units
 			auth.GasPrice = gasPrice
 
-			// TODO: Sign and send the transaction
-			
+			kvPairs, proofs, err := runner.RunMembership(tendermintRpcClient, args[0], trustedBlock, args[1] == "true")
+			if err != nil {
+				return err
+			}
+
+			membershipType, err := strconv.Atoi(args[2])
+			if err != nil {
+				return fmt.Errorf("invalid membership type: %w", err)
+			}
+			if isMembership {
+				msg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
+					Height:                tendermintContract.IICS02ClientMsgsHeight(genesis.TrustedClientState.LatestHeight),
+					KvPairs:               kvPairs,
+					MerkleProofs:          proofs,
+					AppHash:               genesis.TrustedConsensusState.Root,
+					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState(genesis.TrustedConsensusState),
+					MembershipType:        uint8(membershipType),
+				}
+
+				tx, err := ics07Tendermint.VerifyMembership(auth, msg)
+				if err != nil {
+					return fmt.Errorf("failed to verify membership: %w", err)
+				}
+				fmt.Println("tx hash: ", tx.Hash().Hex())
+			} else {
+				msg := tendermintContract.ILightClientMsgsMsgVerifyNonMembership{
+					Height:                tendermintContract.IICS02ClientMsgsHeight(genesis.TrustedClientState.LatestHeight),
+					KvPairs:               kvPairs,
+					MerkleProofs:          proofs,
+					AppHash:               genesis.TrustedConsensusState.Root,
+					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState(genesis.TrustedConsensusState),
+					MembershipType:        uint8(membershipType),
+				}
+
+				tx, err := ics07Tendermint.VerifyNonMembership(auth, msg)
+				if err != nil {
+					return fmt.Errorf("failed to verify non-membership: %w", err)
+				}
+				fmt.Println("tx hash: ", tx.Hash().Hex())
+			}
 			return nil
 		},
 	}
