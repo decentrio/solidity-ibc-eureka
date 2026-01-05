@@ -9,10 +9,12 @@ import { IICS02ClientMsgs } from "../../msgs/IICS02ClientMsgs.sol";
 /// @author gjermundgaraba
 /// @notice Defines shared types for the misbehaviour program.
 interface IMisbehaviourMsgs {
-    /// @notice The message that is submitted to the misbehaviour function.
-    /// @param sp1Proof The SP1 proof for updating the client.
     struct MsgSubmitMisbehaviour {
-        ISP1Msgs.SP1Proof sp1Proof;
+        IICS07TendermintMsgs.ClientState clientState;
+        IMisbehaviourMsgs.Misbehaviour misbehaviour;
+        IICS07TendermintMsgs.ConsensusState trustedConsensusState1;
+        IICS07TendermintMsgs.ConsensusState trustedConsensusState2;
+        uint128 time;
     }
 
     /// @notice The public value output for the sp1 misbehaviour program.
@@ -23,11 +25,13 @@ interface IMisbehaviourMsgs {
     /// @param trustedConsensusState1 The trusted consensus state of header 1
     /// @param trustedConsensusState2 The trusted consensus state of header 2
     struct MisbehaviourOutput {
-        IICS07TendermintMsgs.ClientState clientState;
-        uint128 time;
         IICS02ClientMsgs.Height trustedHeight1;
         IICS02ClientMsgs.Height trustedHeight2;
-        IICS07TendermintMsgs.ConsensusState trustedConsensusState1;
-        IICS07TendermintMsgs.ConsensusState trustedConsensusState2;
+    }
+
+    struct Misbehaviour {
+        IICS07TendermintMsgs.ChainId client_id;
+        IICS07TendermintMsgs.Header header1;
+        IICS07TendermintMsgs.Header header2;
     }
 }

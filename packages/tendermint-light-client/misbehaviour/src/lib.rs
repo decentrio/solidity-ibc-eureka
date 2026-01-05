@@ -111,7 +111,7 @@ pub fn check_for_misbehaviour(
 
     let trust_threshold: TmTrustThreshold = client_state.trust_level.clone().into();
 
-    let options = Options {
+    let options: Options = Options {
         trust_threshold,
         trusting_period: Duration::from_secs(client_state.trusting_period_seconds),
         clock_drift: Duration::from_secs(15),

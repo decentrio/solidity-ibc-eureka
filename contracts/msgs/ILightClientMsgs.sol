@@ -2,30 +2,30 @@
 pragma solidity ^0.8.28;
 
 import { IICS02ClientMsgs } from "./IICS02ClientMsgs.sol";
+import { IMembershipMsgs } from "../light-clients/msgs/IMembershipMsgs.sol";
+import { IICS07TendermintMsgs } from "../light-clients/msgs/IICS07TendermintMsgs.sol";
 
 /// @title LightClient Messages
 /// @notice Interface defining light client messages
 interface ILightClientMsgs {
     /// @notice Message for querying the membership of a key-value pair in the Merkle root at a given height.
-    /// @param proof The proof
-    /// @param proofHeight The height of the proof
-    /// @param path The path of the value in the Merkle tree
-    /// @param value The value in the Merkle tree
     struct MsgVerifyMembership {
-        bytes proof;
-        IICS02ClientMsgs.Height proofHeight;
-        bytes[] path;
-        bytes value;
+        IICS02ClientMsgs.Height height;
+        IMembershipMsgs.KVPair[] kvPairs;
+        IMembershipMsgs.MerkleProof[] merkleProofs;
+        bytes32 appHash;
+        IICS07TendermintMsgs.ConsensusState trustedConsensusState;
+        IMembershipMsgs.MembershipType membershipType;
     }
 
     /// @notice Message for querying the non-membership of a key in the Merkle root at a given height.
-    /// @param proof The proof
-    /// @param proofHeight The height of the proof
-    /// @param path The path of the value in the Merkle tree
     struct MsgVerifyNonMembership {
-        bytes proof;
-        IICS02ClientMsgs.Height proofHeight;
-        bytes[] path;
+        IICS02ClientMsgs.Height height;
+        IMembershipMsgs.KVPair[] kvPairs;
+        IMembershipMsgs.MerkleProof[] merkleProofs;
+        bytes32 appHash;
+        IICS07TendermintMsgs.ConsensusState trustedConsensusState;
+        IMembershipMsgs.MembershipType membershipType;
     }
 
     /// @notice The result of an update operation

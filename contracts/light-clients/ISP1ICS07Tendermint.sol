@@ -13,21 +13,21 @@ interface ISP1ICS07Tendermint {
     /// @return The role identifier
     function PROOF_SUBMITTER_ROLE() external view returns (bytes32);
 
-    /// @notice Immutable update client program verification key.
-    /// @return The verification key for the update client program.
-    function UPDATE_CLIENT_PROGRAM_VKEY() external view returns (bytes32);
+    // /// @notice Immutable update client program verification key.
+    // /// @return The verification key for the update client program.
+    // function UPDATE_CLIENT_PROGRAM_VKEY() external view returns (bytes32);
 
-    /// @notice Immutable membership program verification key.
-    /// @return The verification key for the membership program.
-    function MEMBERSHIP_PROGRAM_VKEY() external view returns (bytes32);
+    // /// @notice Immutable membership program verification key.
+    // /// @return The verification key for the membership program.
+    // function MEMBERSHIP_PROGRAM_VKEY() external view returns (bytes32);
 
-    /// @notice Immutable update client and membership program verification key.
-    /// @return The verification key for the update client and membership program.
-    function UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY() external view returns (bytes32);
+    // /// @notice Immutable update client and membership program verification key.
+    // /// @return The verification key for the update client and membership program.
+    // function UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY() external view returns (bytes32);
 
-    /// @notice Immutable misbehaviour program verification key.
-    /// @return The verification key for the misbehaviour program.
-    function MISBEHAVIOUR_PROGRAM_VKEY() external view returns (bytes32);
+    // /// @notice Immutable misbehaviour program verification key.
+    // /// @return The verification key for the misbehaviour program.
+    // function MISBEHAVIOUR_PROGRAM_VKEY() external view returns (bytes32);
 
     /// @notice Immutable SP1 verifier contract address.
     /// @return The SP1 verifier contract.

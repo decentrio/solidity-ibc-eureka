@@ -11,6 +11,9 @@ import { IICS26RouterMsgs } from "../../contracts/msgs/IICS26RouterMsgs.sol";
 import { SP1ICS07Tendermint } from "../../contracts/light-clients/SP1ICS07Tendermint.sol";
 import { ICS20Transfer } from "../../contracts/ICS20Transfer.sol";
 import { IICS07TendermintMsgs } from "../../contracts/light-clients/msgs/IICS07TendermintMsgs.sol";
+import { Membership } from "../../contracts/programs/Membership.sol";
+import { Misbehaviour } from "../../contracts/programs/Misbehaviour.sol";
+import { UpdateClient } from "../../contracts/programs/UpdateClient.sol";
 import { ICS20Lib } from "../../contracts/utils/ICS20Lib.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { ERC1967Proxy } from "@openzeppelin-contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -99,12 +102,19 @@ abstract contract FixtureTest is Test, IICS07TendermintMsgs, DeployAccessManager
             revert("Unsupported zk algorithm");
         }
 
+        address membership = address(new Membership());
+        address misbehaviour = address(new Misbehaviour());
+        address updateClient = address(new UpdateClient());
+
         SP1ICS07Tendermint ics07Tendermint = new SP1ICS07Tendermint(
-            fixture.genesisFixture.updateClientVkey,
-            fixture.genesisFixture.membershipVkey,
-            fixture.genesisFixture.ucAndMembershipVkey,
-            fixture.genesisFixture.misbehaviourVkey,
+            // fixture.genesisFixture.updateClientVkey,
+            // fixture.genesisFixture.membershipVkey,
+            // fixture.genesisFixture.ucAndMembershipVkey,
+            // fixture.genesisFixture.misbehaviourVkey,
             verifier,
+            membership,
+            misbehaviour,
+            updateClient,
             fixture.genesisFixture.trustedClientState,
             fixture.genesisFixture.trustedConsensusStateHash,
             address(ics26Router)

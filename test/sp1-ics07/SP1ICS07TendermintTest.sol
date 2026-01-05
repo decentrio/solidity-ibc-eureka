@@ -8,6 +8,9 @@ import "forge-std/console.sol";
 import { Test, stdStorage, StdStorage } from "forge-std/Test.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { IICS07TendermintMsgs } from "../../contracts/light-clients/msgs/IICS07TendermintMsgs.sol";
+import { Membership } from "../../contracts/programs/Membership.sol";
+import { Misbehaviour } from "../../contracts/programs/Misbehaviour.sol";
+import { UpdateClient } from "../../contracts/programs/UpdateClient.sol";
 import { IUpdateClientMsgs } from "../../contracts/light-clients/msgs/IUpdateClientMsgs.sol";
 import { IMembershipMsgs } from "../../contracts/light-clients/msgs/IMembershipMsgs.sol";
 import { IUpdateClientAndMembershipMsgs } from "../../contracts/light-clients/msgs/IUcAndMembershipMsgs.sol";
@@ -38,7 +41,6 @@ abstract contract SP1ICS07TendermintTest is
     IUpdateClientMsgs,
     IMembershipMsgs,
     IUpdateClientAndMembershipMsgs,
-    IMisbehaviourMsgs,
     ISP1ICS07TendermintErrors,
     ILightClientMsgs
 {
@@ -69,23 +71,33 @@ abstract contract SP1ICS07TendermintTest is
             revert("Unsupported zk algorithm");
         }
 
+        address membership = address(new Membership());
+        address misbehaviour = address(new Misbehaviour());
+        address updateClient = address(new UpdateClient());
+
         ics07Tendermint = new SP1ICS07Tendermint(
-            genesisFixture.updateClientVkey,
-            genesisFixture.membershipVkey,
-            genesisFixture.ucAndMembershipVkey,
-            genesisFixture.misbehaviourVkey,
+            // genesisFixture.updateClientVkey,
+            // genesisFixture.membershipVkey,
+            // genesisFixture.ucAndMembershipVkey,
+            // genesisFixture.misbehaviourVkey,
             verifier,
+            membership,
+            misbehaviour,
+            updateClient,
             genesisFixture.trustedClientState,
             trustedConsensusHash,
             roleManager
         );
 
         mockIcs07Tendermint = new SP1ICS07Tendermint(
-            genesisFixture.updateClientVkey,
-            genesisFixture.membershipVkey,
-            genesisFixture.ucAndMembershipVkey,
-            genesisFixture.misbehaviourVkey,
+            // genesisFixture.updateClientVkey,
+            // genesisFixture.membershipVkey,
+            // genesisFixture.ucAndMembershipVkey,
+            // genesisFixture.misbehaviourVkey,
             address(new SP1MockVerifier()),
+            membership,
+            misbehaviour,
+            updateClient,
             genesisFixture.trustedClientState,
             trustedConsensusHash,
             roleManager

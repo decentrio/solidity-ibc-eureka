@@ -33,11 +33,14 @@ abstract contract SP1ICS07MockTest is Test {
         bytes32 firstConsensusStateHash = keccak256(abi.encode(newMockConsensusState(1)));
 
         ics07Tendermint = new SP1ICS07Tendermint(
-            MOCK_VKEY,
-            MOCK_VKEY,
-            MOCK_VKEY,
-            MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
+            // MOCK_VKEY,
             address(new SP1MockVerifier()),
+            address(0),
+            address(0),
+            address(0),
             abi.encode(mockClientState(1)),
             firstConsensusStateHash,
             roleManager
@@ -75,88 +78,88 @@ abstract contract SP1ICS07MockTest is Test {
         });
     }
 
-    function newUpdateClientMsg() public view returns (bytes memory) {
-        IICS07TendermintMsgs.ClientState memory clientState =
-            abi.decode(ics07Tendermint.getClientState(), (IICS07TendermintMsgs.ClientState));
-        IICS02ClientMsgs.Height memory trustedHeight =
-            IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: clientState.latestHeight.revisionHeight });
-        clientState.latestHeight.revisionHeight++;
+    // function newUpdateClientMsg() public view returns (bytes memory) {
+    //     IICS07TendermintMsgs.ClientState memory clientState =
+    //         abi.decode(ics07Tendermint.getClientState(), (IICS07TendermintMsgs.ClientState));
+    //     IICS02ClientMsgs.Height memory trustedHeight =
+    //         IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: clientState.latestHeight.revisionHeight });
+    //     clientState.latestHeight.revisionHeight++;
 
-        IUpdateClientMsgs.UpdateClientOutput memory output = IUpdateClientMsgs.UpdateClientOutput({
-            clientState: clientState,
-            trustedConsensusState: newMockConsensusState(trustedHeight.revisionHeight),
-            newConsensusState: newMockConsensusState(clientState.latestHeight.revisionHeight),
-            time: uint128(block.timestamp * 1e9),
-            trustedHeight: trustedHeight,
-            newHeight: clientState.latestHeight
-        });
+    //     IUpdateClientMsgs.UpdateClientOutput memory output = IUpdateClientMsgs.UpdateClientOutput({
+    //         clientState: clientState,
+    //         trustedConsensusState: newMockConsensusState(trustedHeight.revisionHeight),
+    //         newConsensusState: newMockConsensusState(clientState.latestHeight.revisionHeight),
+    //         time: uint128(block.timestamp * 1e9),
+    //         trustedHeight: trustedHeight,
+    //         newHeight: clientState.latestHeight
+    //     });
 
-        return abi.encode(
-            IUpdateClientMsgs.MsgUpdateClient({
-                sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") })
-            })
-        );
-    }
+    //     return abi.encode(
+    //         IUpdateClientMsgs.MsgUpdateClient({
+    //             sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") })
+    //         })
+    //     );
+    // }
 
-    function newMembershipMsg(uint64 height) public view returns (ILightClientMsgs.MsgVerifyMembership memory) {
-        IMembershipMsgs.MembershipOutput memory output =
-            IMembershipMsgs.MembershipOutput({ commitmentRoot: MOCK_ROOT, kvPairs: new IMembershipMsgs.KVPair[](1) });
-        output.kvPairs[0] = IMembershipMsgs.KVPair({ path: membershipPath, value: membershipValue });
+    // function newMembershipMsg(uint64 height) public view returns (ILightClientMsgs.MsgVerifyMembership memory) {
+    //     IMembershipMsgs.MembershipOutput memory output =
+    //         IMembershipMsgs.MembershipOutput({ commitmentRoot: MOCK_ROOT, kvPairs: new IMembershipMsgs.KVPair[](1) });
+    //     output.kvPairs[0] = IMembershipMsgs.KVPair({ path: membershipPath, value: membershipValue });
 
-        IMembershipMsgs.SP1MembershipProof memory sp1Proof = IMembershipMsgs.SP1MembershipProof({
-            sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") }),
-            trustedConsensusState: newMockConsensusState(height)
-        });
+    //     IMembershipMsgs.SP1MembershipProof memory sp1Proof = IMembershipMsgs.SP1MembershipProof({
+    //         sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") }),
+    //         trustedConsensusState: newMockConsensusState(height)
+    //     });
 
-        IMembershipMsgs.MembershipProof memory proof = IMembershipMsgs.MembershipProof({
-            proofType: IMembershipMsgs.MembershipProofType.SP1MembershipProof,
-            proof: abi.encode(sp1Proof)
-        });
+    //     IMembershipMsgs.MembershipProof memory proof = IMembershipMsgs.MembershipProof({
+    //         proofType: IMembershipMsgs.MembershipProofType.SP1MembershipProof,
+    //         proof: abi.encode(sp1Proof)
+    //     });
 
-        return ILightClientMsgs.MsgVerifyMembership({
-            proof: abi.encode(proof),
-            proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: height }),
-            path: membershipPath,
-            value: membershipValue
-        });
-    }
+    //     return ILightClientMsgs.MsgVerifyMembership({
+    //         proof: abi.encode(proof),
+    //         proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: height }),
+    //         path: membershipPath,
+    //         value: membershipValue
+    //     });
+    // }
 
-    function newNonMembershipMsg(uint64 height) public view returns (ILightClientMsgs.MsgVerifyNonMembership memory) {
-        IMembershipMsgs.MembershipOutput memory output =
-            IMembershipMsgs.MembershipOutput({ commitmentRoot: MOCK_ROOT, kvPairs: new IMembershipMsgs.KVPair[](1) });
-        output.kvPairs[0] = IMembershipMsgs.KVPair({ path: membershipPath, value: bytes("") });
+    // function newNonMembershipMsg(uint64 height) public view returns (ILightClientMsgs.MsgVerifyNonMembership memory) {
+    //     IMembershipMsgs.MembershipOutput memory output =
+    //         IMembershipMsgs.MembershipOutput({ commitmentRoot: MOCK_ROOT, kvPairs: new IMembershipMsgs.KVPair[](1) });
+    //     output.kvPairs[0] = IMembershipMsgs.KVPair({ path: membershipPath, value: bytes("") });
 
-        IMembershipMsgs.SP1MembershipProof memory sp1Proof = IMembershipMsgs.SP1MembershipProof({
-            sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") }),
-            trustedConsensusState: newMockConsensusState(height)
-        });
+    //     IMembershipMsgs.SP1MembershipProof memory sp1Proof = IMembershipMsgs.SP1MembershipProof({
+    //         sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") }),
+    //         trustedConsensusState: newMockConsensusState(height)
+    //     });
 
-        IMembershipMsgs.MembershipProof memory proof = IMembershipMsgs.MembershipProof({
-            proofType: IMembershipMsgs.MembershipProofType.SP1MembershipProof,
-            proof: abi.encode(sp1Proof)
-        });
+    //     IMembershipMsgs.MembershipProof memory proof = IMembershipMsgs.MembershipProof({
+    //         proofType: IMembershipMsgs.MembershipProofType.SP1MembershipProof,
+    //         proof: abi.encode(sp1Proof)
+    //     });
 
-        return ILightClientMsgs.MsgVerifyNonMembership({
-            proof: abi.encode(proof),
-            proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: height }),
-            path: membershipPath
-        });
-    }
+    //     return ILightClientMsgs.MsgVerifyNonMembership({
+    //         proof: abi.encode(proof),
+    //         proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: height }),
+    //         path: membershipPath
+    //     });
+    // }
 
-    function newMisbehaviourMsg() public view returns (bytes memory) {
-        IMisbehaviourMsgs.MisbehaviourOutput memory output = IMisbehaviourMsgs.MisbehaviourOutput({
-            clientState: abi.decode(ics07Tendermint.getClientState(), (IICS07TendermintMsgs.ClientState)),
-            time: uint128(block.timestamp * 1e9),
-            trustedHeight1: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 1 }),
-            trustedHeight2: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 1 }),
-            trustedConsensusState1: newMockConsensusState(1),
-            trustedConsensusState2: newMockConsensusState(1)
-        });
+    // function newMisbehaviourMsg() public view returns (bytes memory) {
+    //     IMisbehaviourMsgs.MisbehaviourOutput memory output = IMisbehaviourMsgs.MisbehaviourOutput({
+    //         clientState: abi.decode(ics07Tendermint.getClientState(), (IICS07TendermintMsgs.ClientState)),
+    //         time: uint128(block.timestamp * 1e9),
+    //         trustedHeight1: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 1 }),
+    //         trustedHeight2: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 1 }),
+    //         trustedConsensusState1: newMockConsensusState(1),
+    //         trustedConsensusState2: newMockConsensusState(1)
+    //     });
 
-        return abi.encode(
-            IMisbehaviourMsgs.MsgSubmitMisbehaviour({
-                sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") })
-            })
-        );
-    }
+    //     return abi.encode(
+    //         IMisbehaviourMsgs.MsgSubmitMisbehaviour({
+    //             sp1Proof: ISP1Msgs.SP1Proof({ vKey: MOCK_VKEY, publicValues: abi.encode(output), proof: bytes("") })
+    //         })
+    //     );
+    // }
 }

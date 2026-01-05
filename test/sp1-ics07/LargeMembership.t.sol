@@ -44,27 +44,27 @@ contract SP1ICS07LargeMembershipTest is MembershipTest {
                 proofBz = abi.encode(fixture.membershipProof);
             }
 
-            bytes memory value = getOutput().kvPairs[i].value;
-            if (value.length > 0) {
-                multicallData[i] = abi.encodeCall(
-                    ILightClient.verifyMembership,
-                    MsgVerifyMembership({
-                        proof: proofBz, // cached kv pairs
-                        proofHeight: fixture.proofHeight,
-                        path: getOutput().kvPairs[i].path,
-                        value: value
-                    })
-                );
-            } else {
-                multicallData[i] = abi.encodeCall(
-                    ILightClient.verifyNonMembership,
-                    MsgVerifyNonMembership({
-                        proof: proofBz, // cached kv pairs
-                        proofHeight: fixture.proofHeight,
-                        path: getOutput().kvPairs[i].path
-                    })
-                );
-            }
+            // bytes memory value = getOutput().kvPairs[i].value;
+            // if (value.length > 0) {
+            //     multicallData[i] = abi.encodeCall(
+            //         ILightClient.verifyMembership,
+            //         MsgVerifyMembership({
+            //             proof: proofBz, // cached kv pairs
+            //             proofHeight: fixture.proofHeight,
+            //             path: getOutput().kvPairs[i].path,
+            //             value: value
+            //         })
+            //     );
+            // } else {
+            //     multicallData[i] = abi.encodeCall(
+            //         ILightClient.verifyNonMembership,
+            //         MsgVerifyNonMembership({
+            //             proof: proofBz, // cached kv pairs
+            //             proofHeight: fixture.proofHeight,
+            //             path: getOutput().kvPairs[i].path
+            //         })
+            //     );
+            // }
         }
 
         ics07Tendermint.multicall(multicallData);

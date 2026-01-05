@@ -68,7 +68,7 @@ interface ISP1ICS07TendermintErrors {
     /// @notice The error that is returned when the key-value pair's value does not match the expected value.
     /// @param expected The expected value.
     /// @param actual The actual value.
-    error MembershipProofValueMismatch(bytes expected, bytes actual);
+    error MembershipProofValueMismatch(bytes32 expected, bytes32 actual);
 
     /// @notice The error that is returned when the key-value pair's path is not contained in the proof.
     /// @param path The path of the key-value pair.
@@ -100,9 +100,9 @@ interface ISP1ICS07TendermintErrors {
         uint64 actualRevisionHeight
     );
 
-    /// @notice The error that is returned when the membership proof type is unknown.
-    /// @param proofType The unknown membership proof type.
-    error UnknownMembershipProofType(uint8 proofType);
+    /// @notice The error that is returned when the membership type is unknown.
+    /// @param membershipType The unknown membership type.
+    error UnknownMembershipType(uint8 membershipType);
 
     /// @notice The error that is returned when the zk algorithm is unknown.
     /// @param algorithm The unknown zk algorithm.
@@ -116,9 +116,39 @@ interface ISP1ICS07TendermintErrors {
 
     /// @notice Returned when a key-value pair is not in the cache.
     /// @param path The path of the key-value pair.
-    /// @param value The value of the key-value pair.
-    error KeyValuePairNotInCache(bytes[] path, bytes value);
+    /// @param value The value of the key-value pair.InsufficientTrustingPeriod    
+    error KeyValuePairNotInCache(bytes[] path, bytes32 value);
 
     /// @notice Returned when the membership value is empty.
     error EmptyValue();
+
+    /// @notice insufficient misbehaviour header height: header1 height `{height_1}` should be >= header2 height `{height_2}`.
+    /// @param height1 header1 height.
+    /// @param height2 header2 height. 
+    error InsufficientMisbehaviourHeaderHeight(uint64 height1, uint64 height2);
+
+    /// @notice mismatched revision heights.
+    /// @param expected height.
+    /// @param actual height. 
+    error MismatchedRevisionHeights(uint64 expected, uint64 actual);
+
+    /// @notice invalid header height.
+    /// @param height invalid value.
+    error InvalidHeaderHeight(uint64 height);
+
+    /// @notice vaidator hashes mismatch.
+    /// @param expected validator hashes.
+    /// @param actual validator hashes.
+    error MismatchedValidatorHashes(bytes32 expected, bytes32 actual);
+
+    /// @notice failed to verify header.
+    /// @param description.
+    error FailedToVerifyHeader(string description);
+
+    /// @notice duration since consensus state exceeds than trusting period.
+    /// @param durationSinceConsensusState.
+    /// @param trustingPeriod.
+    error InsufficientTrustingPeriod(uint128 durationSinceConsensusState, uint128 trustingPeriod);
+
+    error InvalidConsensusStateTimestamp(uint128 timestamp);
 }

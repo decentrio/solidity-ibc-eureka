@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
 import { ILightClientMsgs } from "../msgs/ILightClientMsgs.sol";
+import { IUpdateClientMsgs } from "../light-clients/msgs/IUpdateClientMsgs.sol";
 import { ILightClient } from "./ILightClient.sol";
 
 /// @title ICS02 Client Access Controlled Interface

@@ -12,9 +12,10 @@ import { IICS02ClientMsgs } from "../msgs/IICS02ClientMsgs.sol";
 
 import { ISP1ICS07TendermintErrors } from "./errors/ISP1ICS07TendermintErrors.sol";
 import { ISP1ICS07Tendermint } from "./ISP1ICS07Tendermint.sol";
+import { IMembership } from "../interfaces/IMembership.sol";
+import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
+import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
-import { ISP1Verifier } from "@sp1-contracts/ISP1Verifier.sol";
-
 import { IVerifier } from "../interfaces/IVerifier.sol";
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
@@ -42,7 +43,10 @@ contract SP1ICS07Tendermint is
     // /// @inheritdoc ISP1ICS07Tendermint
     // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
-    ISP1Verifier public immutable VERIFIER;
+    IVerifier public immutable VERIFIER;
+    IMembership public immutable MEMBERSHIP;
+    IMisbehaviour public immutable MISBEHAVIOUR;
+    IUpdateClient public immutable UPDATE_CLIENT;
 
     /// @notice The ICS07Tendermint client state
     // natlint-disable-next-line MissingInheritdoc
@@ -58,33 +62,35 @@ contract SP1ICS07Tendermint is
     bytes32 public constant PROOF_SUBMITTER_ROLE = keccak256("PROOF_SUBMITTER_ROLE");
 
     /// @notice The constructor sets the program verification key and the initial client and consensus states.
-    /// @param updateClientProgramVkey The verification key for the update client program.
-    /// @param membershipProgramVkey The verification key for the verify (non)membership program.
-    /// @param updateClientAndMembershipProgramVkey The verification key for the update client and membership program.
-    /// @param misbehaviourProgramVkey The verification key for the misbehaviour program.
-    /// @param sp1Verifier The address of the SP1 verifier contract.
+    /// @param verifier The address of the Groth16 verifier contract.
     /// @param _clientState The encoded initial client state.
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
     constructor(
-        bytes32 updateClientProgramVkey,
-        bytes32 membershipProgramVkey,
-        bytes32 updateClientAndMembershipProgramVkey,
-        bytes32 misbehaviourProgramVkey,
-        address sp1Verifier,
+        // bytes32 updateClientProgramVkey,
+        // bytes32 membershipProgramVkey,
+        // bytes32 updateClientAndMembershipProgramVkey,
+        // bytes32 misbehaviourProgramVkey,
+        address verifier,
+        address membership_,
+        address misbehaviour_,
+        address updateClient_,
         bytes memory _clientState,
         bytes32 _consensusState,
         address roleManager
     ) {
-        UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
-        MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
-        UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
-        MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
+        // UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
+        // MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
+        // UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
+        // MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
 
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
-        VERIFIER = ISP1Verifier(sp1Verifier);
+        VERIFIER = IVerifier(verifier);
+        MEMBERSHIP = IMembership(membership_);
+        MISBEHAVIOUR = IMisbehaviour(misbehaviour_);
+        UPDATE_CLIENT = IUpdateClient(updateClient_);
 
         require(
             clientState.trustingPeriod + ALLOWED_SP1_CLOCK_DRIFT <= clientState.unbondingPeriod,
@@ -113,23 +119,24 @@ contract SP1ICS07Tendermint is
 
     /// @dev This function verifies the public values and forwards the proof to the SP1 verifier.
     /// @inheritdoc ILightClient
-    function updateClient(bytes calldata updateMsg)
+    function updateClient(
+        bytes calldata updateClientMsg
+    )
         external
         notFrozen
         onlyProofSubmitter
         returns (ILightClientMsgs.UpdateResult)
     {
-        IUpdateClientMsgs.MsgUpdateClient memory msgUpdateClient =
-            abi.decode(updateMsg, (IUpdateClientMsgs.MsgUpdateClient));
-        require(
-            msgUpdateClient.sp1Proof.vKey == UPDATE_CLIENT_PROGRAM_VKEY,
-            VerificationKeyMismatch(UPDATE_CLIENT_PROGRAM_VKEY, msgUpdateClient.sp1Proof.vKey)
-        );
-
+        IUpdateClientMsgs.MsgUpdateClient memory msg_ = abi.decode(updateClientMsg, (IUpdateClientMsgs.MsgUpdateClient));
         IUpdateClientMsgs.UpdateClientOutput memory output =
-            abi.decode(msgUpdateClient.sp1Proof.publicValues, (IUpdateClientMsgs.UpdateClientOutput));
+            UPDATE_CLIENT.updateClient(
+                msg_.clientState,
+                msg_.trustedConsensusState,
+                msg_.proposedHeader,
+                msg_.time
+            );
 
-        _validateUpdateClientPublicValues(output);
+        _validateUpdateClientOutput(output);
 
         ILightClientMsgs.UpdateResult updateResult = _checkUpdateResult(output);
         if (updateResult == ILightClientMsgs.UpdateResult.Update) {
@@ -144,8 +151,8 @@ contract SP1ICS07Tendermint is
             return ILightClientMsgs.UpdateResult.NoOp;
         }
 
-        // TODO: Call contract
-        _verifySP1Proof(msgUpdateClient.sp1Proof);
+        // TODO: verify proof
+        // _verifySP1Proof(output.proof);
 
         return updateResult;
     }
@@ -157,8 +164,8 @@ contract SP1ICS07Tendermint is
         onlyProofSubmitter
         returns (uint256)
     {
-        require(msg_.value.length > 0, EmptyValue());
-        return _membership(msg_.proof, msg_.proofHeight, msg_.path, msg_.value);
+        require(msg_.appHash.length > 0, EmptyValue());
+        return _membership(msg_.height, msg_.kvPairs, msg_.merkleProofs, msg_.appHash, msg_.trustedConsensusState, msg_.membershipType);
     }
 
     /// @inheritdoc ILightClient
@@ -168,60 +175,70 @@ contract SP1ICS07Tendermint is
         onlyProofSubmitter
         returns (uint256)
     {
-        return _membership(msg_.proof, msg_.proofHeight, msg_.path, bytes(""));
+        return _membership(msg_.height, msg_.kvPairs, msg_.merkleProofs, msg_.appHash, msg_.trustedConsensusState, msg_.membershipType);
     }
 
     /// @notice The entrypoint for verifying (non)membership proof.
     /// @dev This is a non-membership proof if the value is empty.
     /// @dev If the proof is empty, then we assume that the proof was cached earlier in the same tx.
     /// @dev The proof is cached in the transient storage.
-    /// @param proof The encoded proof.
-    /// @param proofHeight The height of the proof.
-    /// @param path The path of the key-value pair.
-    /// @param value The value of the key-value pair.
+    /// @param height The height of the proof.
+    /// @param kvPairs The path and value of the key-value pair.
+    /// @param merkleProofs The merkle proofs of membership.
+    /// @param appHash The final hash value that needs to verify.
+    /// @param membershipType Membership type.
     /// @return The timestamp of the trusted consensus state in unix seconds.
     function _membership(
-        bytes calldata proof,
-        IICS02ClientMsgs.Height calldata proofHeight,
-        bytes[] calldata path,
-        bytes memory value
+        IICS02ClientMsgs.Height calldata height,
+        IMembershipMsgs.KVPair[] calldata kvPairs,
+        IMembershipMsgs.MerkleProof[] calldata merkleProofs,
+        bytes32 appHash,
+        IICS07TendermintMsgs.ConsensusState calldata trustedConsensusState,
+        IMembershipMsgs.MembershipType membershipType
     )
         private
         returns (uint256)
     {
-        if (proof.length == 0) {
-            // cached proof
-            return _nanosToSeconds(_getCachedKvPair(proofHeight.revisionHeight, IMembershipMsgs.KVPair(path, value)));
-        }
+        // TODO: cached proof
+        // if (merkleProofs.length == 0) {
+        //     // cached proof
+        //     return _nanosToSeconds(_getCachedKvPair(height.revisionHeight, IMembershipMsgs.KVPair(path, value)));
+        // }
 
-        IMembershipMsgs.MembershipProof memory membershipProof = abi.decode(proof, (IMembershipMsgs.MembershipProof));
-        if (membershipProof.proofType == IMembershipMsgs.MembershipProofType.SP1MembershipProof) {
-            return _handleSP1MembershipProof(proofHeight, membershipProof.proof, path, value);
-        } else if (membershipProof.proofType == IMembershipMsgs.MembershipProofType.SP1MembershipAndUpdateClientProof) {
-            return _handleSP1UpdateClientAndMembership(proofHeight, membershipProof.proof, path, value);
+        if (membershipType == IMembershipMsgs.MembershipType.Membership) {
+            return _handleMembership(height, kvPairs, merkleProofs, appHash, trustedConsensusState);
+        } else if (membershipType == IMembershipMsgs.MembershipType.MembershipAndUpdateClient) {
+            // return _handleSP1UpdateClientAndMembership(height, membershipProof.proof, path, value);
         }
 
         // unreachable
-        revert UnknownMembershipProofType(uint8(membershipProof.proofType));
+        revert UnknownMembershipType(uint8(membershipType));
     }
 
     /// @dev The misbehavior is verfied in the sp1 program. Here we only check the public values which contain the
     /// trusted headers.
     /// @inheritdoc ILightClient
-    function misbehaviour(bytes calldata misbehaviourMsg) external notFrozen onlyProofSubmitter {
-        IMisbehaviourMsgs.MsgSubmitMisbehaviour memory msgSubmitMisbehaviour =
-            abi.decode(misbehaviourMsg, (IMisbehaviourMsgs.MsgSubmitMisbehaviour));
-        require(
-            msgSubmitMisbehaviour.sp1Proof.vKey == MISBEHAVIOUR_PROGRAM_VKEY,
-            VerificationKeyMismatch(MISBEHAVIOUR_PROGRAM_VKEY, msgSubmitMisbehaviour.sp1Proof.vKey)
+    function misbehaviour(
+        bytes calldata misbehaviourMsg
+    ) external notFrozen onlyProofSubmitter {
+        IMisbehaviourMsgs.MsgSubmitMisbehaviour memory msg_ = abi.decode(misbehaviourMsg, (IMisbehaviourMsgs.MsgSubmitMisbehaviour));
+        IMisbehaviourMsgs.MisbehaviourOutput memory output = MISBEHAVIOUR.misbehaviour(
+            msg_.clientState,
+            msg_.misbehaviour,
+            msg_.trustedConsensusState1,
+            msg_.trustedConsensusState2,
+            msg_.time
         );
 
-        IMisbehaviourMsgs.MisbehaviourOutput memory output =
-            abi.decode(msgSubmitMisbehaviour.sp1Proof.publicValues, (IMisbehaviourMsgs.MisbehaviourOutput));
+        _validateMisbehaviourOutput(
+            output,
+            msg_.clientState,
+            msg_.trustedConsensusState1,
+            msg_.trustedConsensusState2,
+            msg_.time
+        );
 
-        _validateMisbehaviourOutput(output);
-
-        _verifySP1Proof(msgSubmitMisbehaviour.sp1Proof);
+        // _verifySP1Proof(msgSubmitMisbehaviour.sp1Proof);
 
         // If the misbehaviour and proof is valid, the client needs to be frozen
         clientState.isFrozen = true;
@@ -234,63 +251,35 @@ contract SP1ICS07Tendermint is
     }
 
     /// @notice Handles the `SP1MembershipProof` proof type.
-    /// @param proofHeight The height of the proof.
-    /// @param proofBytes The encoded proof.
-    /// @param kvPath The path of the key-value pair.
-    /// @param kvValue The value of the key-value pair.
+    /// @param height The height of the proof.
+    /// @param kvPairs The path and value of the key-value pair.
+    /// @param merkleProofs The merkle proofs of membership.
+    /// @param appHash The final hash value that needs to verify.
     /// @return The timestamp of the trusted consensus state.
-    function _handleSP1MembershipProof(
-        IICS02ClientMsgs.Height calldata proofHeight,
-        bytes memory proofBytes,
-        bytes[] calldata kvPath,
-        bytes memory kvValue
+    function _handleMembership(
+        IICS02ClientMsgs.Height calldata height,
+        IMembershipMsgs.KVPair[] calldata kvPairs,
+        IMembershipMsgs.MerkleProof[] calldata merkleProofs,
+        bytes32 appHash,
+        IICS07TendermintMsgs.ConsensusState calldata trustedConsensusState
     )
         private
         returns (uint256)
     {
-        IMembershipMsgs.SP1MembershipProof memory proof = abi.decode(proofBytes, (IMembershipMsgs.SP1MembershipProof));
         require(
-            proof.sp1Proof.vKey == MEMBERSHIP_PROGRAM_VKEY,
-            VerificationKeyMismatch(MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
+            kvPairs.length > 0 && kvPairs.length <= type(uint16).max,
+            LengthIsOutOfRange(kvPairs.length, 1, type(uint16).max)
         );
 
         IMembershipMsgs.MembershipOutput memory output =
-            abi.decode(proof.sp1Proof.publicValues, (IMembershipMsgs.MembershipOutput));
-        require(
-            output.kvPairs.length > 0 && output.kvPairs.length <= type(uint16).max,
-            LengthIsOutOfRange(output.kvPairs.length, 1, type(uint16).max)
-        );
-
-        {
-            // loop through the key-value pairs and validate them
-            bool found = false;
-            for (uint256 i = 0; i < output.kvPairs.length; i++) {
-                if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
-                    continue;
-                }
-
-                bytes memory value = output.kvPairs[i].value;
-                require(
-                    value.length == kvValue.length && keccak256(value) == keccak256(kvValue),
-                    MembershipProofValueMismatch(kvValue, value)
-                );
-
-                found = true;
-                break;
-            }
-            require(found, MembershipProofKeyNotFound(kvPath));
-        }
-
-        _validateMembershipOutput(output.commitmentRoot, proofHeight.revisionHeight, proof.trustedConsensusState);
-
-        // TODO: Call contract
-        _verifySP1Proof(proof.sp1Proof);
+            MEMBERSHIP.membership(appHash, kvPairs, merkleProofs);
+        _validateMembershipOutput(output.commitmentRoot, height.revisionHeight, trustedConsensusState);
 
         // We avoid the cost of caching for single kv pairs, as reusing the proof is not necessary
         if (output.kvPairs.length > 1) {
-            _cacheKvPairs(proofHeight.revisionHeight, output.kvPairs, proof.trustedConsensusState.timestamp);
+            _cacheKvPairs(height.revisionHeight, output.kvPairs, trustedConsensusState.timestamp);
         }
-        return _getTimestampInSeconds(proof.trustedConsensusState);
+        return _getTimestampInSeconds(trustedConsensusState);
     }
 
     /// @notice The entrypoint for handling the `SP1MembershipAndUpdateClientProof` proof type.
@@ -305,7 +294,7 @@ contract SP1ICS07Tendermint is
         IICS02ClientMsgs.Height calldata proofHeight,
         bytes memory proofBytes,
         bytes[] calldata kvPath,
-        bytes memory kvValue
+        bytes32 kvValue
     )
         private
         returns (uint256)
@@ -315,10 +304,10 @@ contract SP1ICS07Tendermint is
         {
             IMembershipMsgs.SP1MembershipAndUpdateClientProof memory proof =
                 abi.decode(proofBytes, (IMembershipMsgs.SP1MembershipAndUpdateClientProof));
-            require(
-                proof.sp1Proof.vKey == UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY,
-                VerificationKeyMismatch(UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
-            );
+            // require(
+            //     proof.sp1Proof.vKey == UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY,
+            //     VerificationKeyMismatch(UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY, proof.sp1Proof.vKey)
+            // );
 
             output = abi.decode(proof.sp1Proof.publicValues, (IUpdateClientAndMembershipMsgs.UcAndMembershipOutput));
             require(
@@ -337,7 +326,7 @@ contract SP1ICS07Tendermint is
                 )
             );
 
-            _validateUpdateClientPublicValues(output.updateClientOutput);
+            _validateUpdateClientOutput(output.updateClientOutput);
 
             // TODO: Call contract
             _verifySP1Proof(proof.sp1Proof);
@@ -366,9 +355,9 @@ contract SP1ICS07Tendermint is
                     continue;
                 }
 
-                bytes memory value = output.kvPairs[i].value;
+                bytes32 value = output.kvPairs[i].value;
                 require(
-                    value.length == kvValue.length && keccak256(value) == keccak256(kvValue),
+                    value == kvValue,
                     MembershipProofValueMismatch(kvValue, value)
                 );
 
@@ -420,7 +409,7 @@ contract SP1ICS07Tendermint is
 
     /// @notice Validates the SP1ICS07UpdateClientOutput public values.
     /// @param output The public values.
-    function _validateUpdateClientPublicValues(IUpdateClientMsgs.UpdateClientOutput memory output) private view {
+    function _validateUpdateClientOutput(IUpdateClientMsgs.UpdateClientOutput memory output) private view {
         _validateClientStateAndTime(output.clientState, output.time);
 
         bytes32 outputConsensusStateHash = keccak256(abi.encode(output.trustedConsensusState));
@@ -433,12 +422,18 @@ contract SP1ICS07Tendermint is
 
     /// @notice Validates the SP1ICS07MisbehaviourOutput public values.
     /// @param output The public values.
-    function _validateMisbehaviourOutput(IMisbehaviourMsgs.MisbehaviourOutput memory output) private view {
-        _validateClientStateAndTime(output.clientState, output.time);
+    function _validateMisbehaviourOutput(
+        IMisbehaviourMsgs.MisbehaviourOutput memory output,
+        IICS07TendermintMsgs.ClientState memory clientState_,
+        IICS07TendermintMsgs.ConsensusState memory trustedConsensusState1,
+        IICS07TendermintMsgs.ConsensusState memory trustedConsensusState2,
+        uint128 time
+    ) private view {
+        _validateClientStateAndTime(clientState_, time);
 
         // make sure the trusted consensus state from header 1 is known (trusted) by matching it with the one in the
         // mapping
-        bytes32 outputConsensusStateHash1 = keccak256(abi.encode(output.trustedConsensusState1));
+        bytes32 outputConsensusStateHash1 = keccak256(abi.encode(trustedConsensusState1));
         bytes32 storedConsensusStateHash1 = getConsensusStateHash(output.trustedHeight1.revisionHeight);
         require(
             outputConsensusStateHash1 == storedConsensusStateHash1,
@@ -447,7 +442,7 @@ contract SP1ICS07Tendermint is
 
         // make sure the trusted consensus state from header 2 is known (trusted) by matching it with the one in the
         // mapping
-        bytes32 outputConsensusStateHash2 = keccak256(abi.encode(output.trustedConsensusState2));
+        bytes32 outputConsensusStateHash2 = keccak256(abi.encode(trustedConsensusState2));
         bytes32 storedConsensusStateHash2 = getConsensusStateHash(output.trustedHeight2.revisionHeight);
         require(
             outputConsensusStateHash2 == storedConsensusStateHash2,
