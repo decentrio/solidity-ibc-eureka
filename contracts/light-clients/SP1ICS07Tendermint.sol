@@ -16,8 +16,6 @@ import { IMembership } from "../interfaces/IMembership.sol";
 import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
-import { ISP1Verifier } from "@sp1-contracts/ISP1Verifier.sol";
-
 import { IVerifier } from "../interfaces/IVerifier.sol";
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
@@ -45,7 +43,7 @@ contract SP1ICS07Tendermint is
     // /// @inheritdoc ISP1ICS07Tendermint
     // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
-    ISP1Verifier public immutable VERIFIER;
+    IVerifier public immutable VERIFIER;
     IMembership public immutable MEMBERSHIP;
     IMisbehaviour public immutable MISBEHAVIOUR;
     IUpdateClient public immutable UPDATE_CLIENT;
@@ -64,7 +62,7 @@ contract SP1ICS07Tendermint is
     bytes32 public constant PROOF_SUBMITTER_ROLE = keccak256("PROOF_SUBMITTER_ROLE");
 
     /// @notice The constructor sets the program verification key and the initial client and consensus states.
-    /// @param sp1Verifier The address of the SP1 verifier contract.
+    /// @param verifier The address of the Groth16 verifier contract.
     /// @param _clientState The encoded initial client state.
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
@@ -73,7 +71,7 @@ contract SP1ICS07Tendermint is
         // bytes32 membershipProgramVkey,
         // bytes32 updateClientAndMembershipProgramVkey,
         // bytes32 misbehaviourProgramVkey,
-        address sp1Verifier,
+        address verifier,
         address membership_,
         address misbehaviour_,
         address updateClient_,
@@ -89,7 +87,7 @@ contract SP1ICS07Tendermint is
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
-        VERIFIER = ISP1Verifier(sp1Verifier);
+        VERIFIER = IVerifier(verifier);
         MEMBERSHIP = IMembership(membership_);
         MISBEHAVIOUR = IMisbehaviour(misbehaviour_);
         UPDATE_CLIENT = IUpdateClient(updateClient_);
