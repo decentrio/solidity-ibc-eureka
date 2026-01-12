@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import { ISP1Verifier } from "@sp1-contracts/ISP1Verifier.sol";
-
+import { IVerifier } from "../interfaces/IVerifier.sol";
 /// @title ISP1ICS07Tendermint
 /// @notice ISP1ICS07Tendermint is the interface for the ICS07 Tendermint light client
 interface ISP1ICS07Tendermint {
@@ -29,9 +28,9 @@ interface ISP1ICS07Tendermint {
     // /// @return The verification key for the misbehaviour program.
     // function MISBEHAVIOUR_PROGRAM_VKEY() external view returns (bytes32);
 
-    /// @notice Immutable SP1 verifier contract address.
-    /// @return The SP1 verifier contract.
-    function VERIFIER() external view returns (ISP1Verifier);
+    /// @notice Immutable groth16 verifier contract address.
+    /// @return The Groth16 verifier contract.
+    function VERIFIER() external view returns (IVerifier);
 
     /// @notice Constant allowed prover clock drift in seconds.
     /// @return The allowed prover clock drift in seconds.
