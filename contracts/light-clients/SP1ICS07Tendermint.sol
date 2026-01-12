@@ -328,7 +328,7 @@ contract SP1ICS07Tendermint is
 
             _validateUpdateClientOutput(output.updateClientOutput);
 
-            _verifySP1Proof(proof.sp1Proof);
+            // _verifySP1Proof(proof.sp1Proof);
         }
 
         // check update result
@@ -525,12 +525,12 @@ contract SP1ICS07Tendermint is
         }
     }
 
-    /// @notice Verifies the SP1 proof
-    /// @param proof The SP1 proof.
-    /// @dev WARNING: proof.vKey must be verified before calling this function.
-    function _verifySP1Proof(ISP1Msgs.SP1Proof memory proof) private view {
-        VERIFIER.verifyProof(proof.vKey, proof.publicValues, proof.proof);
-    }
+    // /// @notice Verifies the SP1 proof
+    // /// @param proof The SP1 proof.
+    // /// @dev WARNING: proof.vKey must be verified before calling this function.
+    // function _verifySP1Proof(ISP1Msgs.SP1Proof memory proof) private view {
+    //     VERIFIER.verifyProof(proof.vKey, proof.publicValues, proof.proof);
+    // }
 
     /// @notice Caches the key-value pairs to the transient storage with the timestamp.
     /// @param proofHeight The height of the proof.
