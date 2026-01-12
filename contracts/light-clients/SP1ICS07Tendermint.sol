@@ -17,6 +17,7 @@ import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
 import { IVerifier } from "../interfaces/IVerifier.sol";
+import {Groth16Verifier} from "../utils/Groth16Verifier.sol";
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
 import { TransientSlot } from "@openzeppelin-contracts/utils/TransientSlot.sol";
@@ -34,14 +35,6 @@ contract SP1ICS07Tendermint is
 {
     using TransientSlot for *;
 
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable UPDATE_CLIENT_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable MEMBERSHIP_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
     IVerifier public immutable VERIFIER;
     IMembership public immutable MEMBERSHIP;
@@ -67,10 +60,6 @@ contract SP1ICS07Tendermint is
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
     constructor(
-        // bytes32 updateClientProgramVkey,
-        // bytes32 membershipProgramVkey,
-        // bytes32 updateClientAndMembershipProgramVkey,
-        // bytes32 misbehaviourProgramVkey,
         address verifier,
         address membership_,
         address misbehaviour_,
@@ -79,15 +68,10 @@ contract SP1ICS07Tendermint is
         bytes32 _consensusState,
         address roleManager
     ) {
-        // UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
-        // MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
-        // UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
-        // MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
-
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
-        VERIFIER = IVerifier(verifier);
+        VERIFIER = Groth16Verifier(verifier);
         MEMBERSHIP = IMembership(membership_);
         MISBEHAVIOUR = IMisbehaviour(misbehaviour_);
         UPDATE_CLIENT = IUpdateClient(updateClient_);
@@ -530,7 +514,7 @@ contract SP1ICS07Tendermint is
     /// @param proof The SP1 proof.
     /// @dev WARNING: proof.vKey must be verified before calling this function.
     function _verifySP1Proof(ISP1Msgs.SP1Proof memory proof) private view {
-        VERIFIER.verifyProof(proof.vKey, proof.publicValues, proof.proof);
+        VERIFIER.verifyProof(proof.proof, proof.publicValues);
     }
 
     /// @notice Caches the key-value pairs to the transient storage with the timestamp.
