@@ -10,12 +10,14 @@ import { IICS02ClientMsgs } from "../../msgs/IICS02ClientMsgs.sol";
 /// @notice Defines shared types for the update client program.
 interface IUpdateClientMsgs {
     /// @notice The message that is submitted to the updateClient function.
-    /// @param sp1Proof The SP1 proof for updating the client.
     struct MsgUpdateClient {
         IICS07TendermintMsgs.ClientState clientState;
         IICS07TendermintMsgs.ConsensusState trustedConsensusState;
         IICS07TendermintMsgs.Header proposedHeader;
         uint128 time;
+        uint256[8] proof;
+        uint256[2] commitments;
+        uint256[2] commitmentPok;
     }
 
     /// @notice The public value output for the sp1 update client program.

@@ -151,8 +151,14 @@ contract SP1ICS07Tendermint is
             return ILightClientMsgs.UpdateResult.NoOp;
         }
 
-        // TODO: verify proof
-        // _verifySP1Proof(output.proof);
+        // TODO: take input to put in verifying proof
+        // uint256[8] calldata proof = msg_.proof;
+        // if (proof[4] == 0 && proof[5] == 0 && proof[6] == 0 && proof[7] == 0) {
+        //     uint256[4] memory compressedProof = [proof[0], proof[1], proof[2], proof[3]];
+        //     VERIFIER.verifyCompressedProof(compressedProof, input);
+        // } else {
+        //     VERIFIER.verifyProof(proof, input);
+        // }
 
         return updateResult;
     }
@@ -238,7 +244,7 @@ contract SP1ICS07Tendermint is
             msg_.time
         );
 
-        // _verifySP1Proof(msgSubmitMisbehaviour.sp1Proof);
+        // _verifyProof(msgSubmitMisbehaviour.sp1Proof);
 
         // If the misbehaviour and proof is valid, the client needs to be frozen
         clientState.isFrozen = true;
@@ -328,7 +334,8 @@ contract SP1ICS07Tendermint is
 
             _validateUpdateClientOutput(output.updateClientOutput);
 
-            // _verifySP1Proof(proof.sp1Proof);
+            // TODO: verify proof with input
+            // _verifyProof(proof.sp1Proof);
         }
 
         // check update result
@@ -525,10 +532,11 @@ contract SP1ICS07Tendermint is
         }
     }
 
-    // /// @notice Verifies the SP1 proof
-    // /// @param proof The SP1 proof.
-    // /// @dev WARNING: proof.vKey must be verified before calling this function.
-    // function _verifySP1Proof(ISP1Msgs.SP1Proof memory proof) private view {
+    /// @notice Verifies the SP1 proof
+    /// @param proof The SP1 proof.
+    /// @dev WARNING: proof.vKey must be verified before calling this function.
+    // TODO: verify proof with given input
+    // function _verifyProof(ISP1Msgs.SP1Proof memory proof) private view {
     //     VERIFIER.verifyProof(proof.vKey, proof.publicValues, proof.proof);
     // }
 
