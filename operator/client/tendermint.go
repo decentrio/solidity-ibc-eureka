@@ -39,6 +39,118 @@ type LightBlock struct {
 	BlockHeight  int64
 }
 
+func (b *LightBlock) IntoHeader(trustedBlock LightBlock) updateClientContract.IICS07TendermintMsgsHeader {
+	revisionNumer := clienttypes.ParseChainID(trustedBlock.SignedHeader.ChainID)
+
+	commitSigs := []updateClientContract.IICS07TendermintMsgsCommitSig{}
+	for _, sig := range b.SignedHeader.Commit.Signatures {
+		commitSigs = append(commitSigs, updateClientContract.IICS07TendermintMsgsCommitSig{
+			Flag: uint8(sig.BlockIDFlag),
+			Data: updateClientContract.IICS07TendermintMsgsCommitSigData{
+				ValidatorAddress: sig.ValidatorAddress,
+				Timestamp:        big.NewInt(sig.Timestamp.Unix()),
+				HasSignature:     sig.Signature != nil,
+				Signature:        sig.Signature,
+			},
+		})
+	}
+
+	vals := []updateClientContract.IICS07TendermintMsgsValidatorInfo{}
+	for _, val := range b.ValSet.Validators {
+		vals = append(vals, updateClientContract.IICS07TendermintMsgsValidatorInfo{
+			ValAddress:       val.Address,
+			PubKey:           bytesToBytes32(val.PubKey.Bytes()),
+			VotingPower:      uint64(val.VotingPower),
+			ProposerPriority: val.ProposerPriority,
+		})
+	}
+
+	nextVals := []updateClientContract.IICS07TendermintMsgsValidatorInfo{}
+	for _, val := range trustedBlock.NextValSet.Validators {
+		nextVals = append(nextVals, updateClientContract.IICS07TendermintMsgsValidatorInfo{
+			ValAddress:       val.Address,
+			PubKey:           bytesToBytes32(val.PubKey.Bytes()),
+			VotingPower:      uint64(val.VotingPower),
+			ProposerPriority: val.ProposerPriority,
+		})
+	}
+
+	header := updateClientContract.IICS07TendermintMsgsHeader{
+		TrustedHeight: updateClientContract.IICS02ClientMsgsHeight{
+			RevisionNumber: revisionNumer,
+			RevisionHeight: uint64(trustedBlock.BlockHeight),
+		},
+		SignedHeader: updateClientContract.IICS07TendermintMsgsSignedHeader{
+			Header: updateClientContract.IICS07TendermintMsgsBlockHeader{
+				Version: updateClientContract.IICS07TendermintMsgsVersion{
+					BlockVersion: b.SignedHeader.Version.Block,
+					AppVersion:   b.SignedHeader.Version.App,
+				},
+				ChainId:        b.SignedHeader.ChainID,
+				Height:         uint64(b.BlockHeight),
+				Time:           big.NewInt(b.SignedHeader.Time.Unix()),
+				HasLastBlockId: b.SignedHeader.LastBlockID.IsZero(),
+				LastBlockId: updateClientContract.IICS07TendermintMsgsBlockId{
+					HashData: bytesToBytes32(b.SignedHeader.LastBlockID.Hash),
+					PartSetHeader: updateClientContract.IICS07TendermintMsgsPartSetHeader{
+						Total:    b.SignedHeader.LastBlockID.PartSetHeader.Total,
+						HashData: bytesToBytes32(b.SignedHeader.LastBlockID.PartSetHeader.Hash),
+					},
+				},
+				HasLastCommitHash:  b.SignedHeader.LastCommitHash != nil,
+				LastCommitHash:     bytesToBytes32(b.SignedHeader.LastCommitHash),
+				HasDataHash:        b.SignedHeader.DataHash != nil,
+				DataHash:           bytesToBytes32(b.SignedHeader.DataHash),
+				ValidatorsHash:     bytesToBytes32(b.SignedHeader.ValidatorsHash),
+				NextValidatorsHash: bytesToBytes32(b.SignedHeader.NextValidatorsHash),
+				ConsensusHash:      bytesToBytes32(b.SignedHeader.ConsensusHash),
+				AppHash:            bytesToBytes32(b.SignedHeader.AppHash),
+				HasLastResultsHash: b.SignedHeader.LastResultsHash != nil,
+				LastResultsHash:    bytesToBytes32(b.SignedHeader.LastResultsHash),
+				HasEvidenceHash:    b.SignedHeader.EvidenceHash != nil,
+				EvidenceHash:       bytesToBytes32(b.SignedHeader.EvidenceHash),
+				ProposerAddress:    b.SignedHeader.ProposerAddress,
+			},
+			Commit: updateClientContract.IICS07TendermintMsgsBlockCommit{
+				Height: uint64(b.SignedHeader.Commit.Height),
+				Round:  uint32(b.SignedHeader.Commit.Round),
+				BlockId: updateClientContract.IICS07TendermintMsgsBlockId{
+					HashData: bytesToBytes32(b.SignedHeader.Commit.BlockID.Hash),
+					PartSetHeader: updateClientContract.IICS07TendermintMsgsPartSetHeader{
+						Total:    b.SignedHeader.Commit.BlockID.PartSetHeader.Total,
+						HashData: bytesToBytes32(b.SignedHeader.Commit.BlockID.PartSetHeader.Hash),
+					},
+				},
+				CommitSigs: commitSigs,
+			},
+		},
+		ValidatorSet: updateClientContract.IICS07TendermintMsgsValidatorSet{
+			Validators:  vals,
+			HasProposer: b.ValSet.Proposer != nil,
+			Proposer: updateClientContract.IICS07TendermintMsgsValidatorInfo{
+				ValAddress:       b.ValSet.Proposer.Address,
+				PubKey:           bytesToBytes32(b.ValSet.Proposer.PubKey.Bytes()),
+				VotingPower:      uint64(b.ValSet.Proposer.VotingPower),
+				ProposerPriority: b.ValSet.Proposer.ProposerPriority,
+			},
+			TotalVotingPower: uint64(b.ValSet.TotalVotingPower()),
+		},
+		TrustedNextValidatorSet: updateClientContract.IICS07TendermintMsgsValidatorSet{
+			Validators:  nextVals,
+			HasProposer: trustedBlock.ValSet.Proposer != nil,
+			Proposer: updateClientContract.IICS07TendermintMsgsValidatorInfo{
+				ValAddress:       trustedBlock.ValSet.Proposer.Address,
+				PubKey:           bytesToBytes32(trustedBlock.ValSet.Proposer.PubKey.Bytes()),
+				VotingPower:      uint64(trustedBlock.ValSet.Proposer.VotingPower),
+				ProposerPriority: trustedBlock.ValSet.Proposer.ProposerPriority,
+			},
+			TotalVotingPower: uint64(trustedBlock.ValSet.TotalVotingPower()),
+		},
+	}
+
+	return header
+}
+
 type SP1ICS07TendermintGenesis struct {
 	TrustedClientState    updateClientContract.IICS07TendermintMsgsClientState
 	TrustedConsensusState updateClientContract.IICS07TendermintMsgsConsensusState

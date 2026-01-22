@@ -6,6 +6,7 @@ require (
 	github.com/cometbft/cometbft v0.38.18
 	github.com/cosmos/cosmos-sdk v0.53.3
 	github.com/cosmos/ibc-go/v10 v10.3.0
+	github.com/cosmos/ics23/go v0.11.0
 	github.com/ethereum/go-ethereum v1.16.2
 	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.9.1
@@ -54,7 +55,6 @@ require (
 	github.com/cosmos/gogogateway v1.2.0 // indirect
 	github.com/cosmos/gogoproto v1.7.0 // indirect
 	github.com/cosmos/iavl v1.2.2 // indirect
-	github.com/cosmos/ics23/go v0.11.0 // indirect
 	github.com/cosmos/ledger-cosmos-go v0.14.0 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
