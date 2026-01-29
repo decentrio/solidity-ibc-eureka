@@ -2,7 +2,13 @@ package subscriber
 
 import (
 	"context"
+	"os"
+
+	contractICS26Router "operator/bindings/ICS26Router"
 	"operator/services"
+
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.core.channel.v1.MsgSendPacket'"
@@ -20,7 +26,111 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 		select {
 		case ev := <-sub:
 			// handle event
-			ev.Data
+			_ = ev.Data // Consume the event data
+		}
+	}
+}
+
+// SubscribeEth subscribes to Ethereum events from the ICS26Router contract
+func (s *Subscriber) SubscribeEth(ctx services.Context) {
+	// Get the ICS26Router contract address from environment variable
+	ics26RouterAddr := os.Getenv("ICS26_ROUTER_ADDRESS")
+	if ics26RouterAddr == "" {
+		ctx.Logger.Println("ICS26_ROUTER_ADDRESS environment variable is required")
+		return
+	}
+
+	// Parse the contract address
+	contractAddr := common.HexToAddress(ics26RouterAddr)
+
+	// Create a new ICS26Router filterer instance (only for event subscriptions)
+	filterer, err := contractICS26Router.NewContractICS26RouterFilterer(contractAddr, ctx.EthClient())
+	if err != nil {
+		ctx.Logger.Printf("Failed to create ICS26Router filterer instance: %v", err)
+		return
+	}
+
+	// Create event channels for each event type
+	sendPacketCh := make(chan *contractICS26Router.ContractICS26RouterSendPacket)
+	writeAckCh := make(chan *contractICS26Router.ContractICS26RouterWriteAcknowledgement)
+	ackPacketCh := make(chan *contractICS26Router.ContractICS26RouterAckPacket)
+	timeoutPacketCh := make(chan *contractICS26Router.ContractICS26RouterTimeoutPacket)
+
+	// Set up watch options (nil for all events, no filtering by clientId or sequence)
+	watchOpts := &bind.WatchOpts{Context: context.Background()}
+
+	// Subscribe to SendPacket events
+	sendPacketSub, err := filterer.WatchSendPacket(watchOpts, sendPacketCh, nil, nil)
+	if err != nil {
+		ctx.Logger.Printf("Failed to subscribe to SendPacket events: %v", err)
+		return
+	}
+	defer sendPacketSub.Unsubscribe()
+
+	// Subscribe to WriteAcknowledgement events
+	writeAckSub, err := filterer.WatchWriteAcknowledgement(watchOpts, writeAckCh, nil, nil)
+	if err != nil {
+		ctx.Logger.Printf("Failed to subscribe to WriteAcknowledgement events: %v", err)
+		return
+	}
+	defer writeAckSub.Unsubscribe()
+
+	// Subscribe to AckPacket events
+	ackPacketSub, err := filterer.WatchAckPacket(watchOpts, ackPacketCh, nil, nil)
+	if err != nil {
+		ctx.Logger.Printf("Failed to subscribe to AckPacket events: %v", err)
+		return
+	}
+	defer ackPacketSub.Unsubscribe()
+
+	// Subscribe to TimeoutPacket events
+	timeoutPacketSub, err := filterer.WatchTimeoutPacket(watchOpts, timeoutPacketCh, nil, nil)
+	if err != nil {
+		ctx.Logger.Printf("Failed to subscribe to TimeoutPacket events: %v", err)
+		return
+	}
+	defer timeoutPacketSub.Unsubscribe()
+
+	ctx.Logger.Println("Successfully subscribed to ICS26Router events")
+
+	// Event loop to handle incoming events
+	for {
+		select {
+		case ev := <-sendPacketCh:
+			// TODO: handle SendPacket event
+			// This event is emitted when a packet is sent from Ethereum to Cosmos
+			ctx.Logger.Printf("SendPacket event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
+
+		case ev := <-writeAckCh:
+			// TODO: handle WriteAcknowledgement event
+			// This event is emitted when an acknowledgement is written on Ethereum
+			ctx.Logger.Printf("WriteAcknowledgement event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
+
+		case ev := <-ackPacketCh:
+			// TODO: handle AckPacket event
+			// This event is emitted when a packet acknowledgement is received on Ethereum
+			ctx.Logger.Printf("AckPacket event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
+
+		case ev := <-timeoutPacketCh:
+			// TODO: handle TimeoutPacket event
+			// This event is emitted when a packet times out
+			ctx.Logger.Printf("TimeoutPacket event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
+
+		case err := <-sendPacketSub.Err():
+			ctx.Logger.Printf("SendPacket subscription error: %v", err)
+			return
+
+		case err := <-writeAckSub.Err():
+			ctx.Logger.Printf("WriteAcknowledgement subscription error: %v", err)
+			return
+
+		case err := <-ackPacketSub.Err():
+			ctx.Logger.Printf("AckPacket subscription error: %v", err)
+			return
+
+		case err := <-timeoutPacketSub.Err():
+			ctx.Logger.Printf("TimeoutPacket subscription error: %v", err)
+			return
 		}
 	}
 }
