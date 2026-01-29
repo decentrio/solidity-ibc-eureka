@@ -724,13 +724,13 @@ contract Membership  is IMembership {
      */
     function bytesToBytes32(bytes memory data) internal pure returns (bytes32 result) {
         if (data.length >= 32) {
-            assembly {
+            assembly ("memory-safe") {
                 result := mload(add(data, 32))
             }
         } else {
             // Pad with zeros if data is shorter than 32 bytes
             bytes32 temp;
-            assembly {
+            assembly ("memory-safe") {
                 temp := mload(add(data, 32))
             }
             result = temp >> (8 * (32 - data.length));
@@ -739,7 +739,7 @@ contract Membership  is IMembership {
 
     function bytes32ToBytes(bytes32 data) internal pure returns (bytes memory) {
         bytes memory result = new bytes(32);
-        assembly {
+        assembly ("memory-safe") {
             mstore(add(result, 32), data)
         }
         return result;
@@ -756,7 +756,7 @@ contract Membership  is IMembership {
         uint256 length = to - from;
         bytes memory result = new bytes(length);
         
-        assembly {
+        assembly ("memory-safe") {
             let src := add(add(array, 0x20), from)
             let dest := add(result, 0x20)
             
