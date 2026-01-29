@@ -274,6 +274,7 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			}
 
 			fromAddress := crypto.PubkeyToAddress(*publicKey)
+			crypto.HexToECDSA()
 			nonce, err := ethClient.PendingNonceAt(context.Background(), fromAddress)
 			if err != nil {
 				log.Fatal(err)
