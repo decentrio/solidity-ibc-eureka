@@ -26,8 +26,10 @@ type Services struct {
 	ethConfig    Config
 	cosmosConfig Config
 
-	// pending txs
-	txs chan any
+	// packets chan
+	// TODO: add retry queue and tracks timeout for packets
+	// TODO: interface instead of any here
+	packets chan any
 }
 
 func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionHandler, ethConfig, cosmosConfig Config) *Services {
@@ -38,7 +40,7 @@ func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionH
 		worker: &Worker{
 			txHandler: txHandler,
 		},
-		txs: make(chan any),
+		packets: make(chan any),
 	}
 }
 
@@ -96,9 +98,9 @@ func (s *Services) StartLoop() {
 		}
 	}()
 
-	// handle txs
+	// handle packets
 	for {
-		_, ok := <-s.txs
+		_, ok := <-s.packets
 		if !ok {
 			fmt.Println("Channel closed, exiting loop")
 			break // Exit the loop when the channel is closed
