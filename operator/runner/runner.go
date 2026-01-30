@@ -7,8 +7,8 @@ import (
 
 	"github.com/cometbft/cometbft/rpc/client/http"
 
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
-	tendermintClient "operator/client"
+	tendermintContract "prover/bindings/SP1ICS07Tendermint"
+	tendermintClient "prover/client"
 )
 
 func RunMembership(client *http.HTTP, keyPathsStr string, trustedBlock int64, isBase64 bool) ([]tendermintContract.IMembershipMsgsKVPair, []tendermintContract.IMembershipMsgsMerkleProof, error) {

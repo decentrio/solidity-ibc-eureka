@@ -128,13 +128,7 @@ contract SP1ICS07Tendermint is
         returns (ILightClientMsgs.UpdateResult)
     {
         IUpdateClientMsgs.MsgUpdateClient memory msg_ = abi.decode(updateClientMsg, (IUpdateClientMsgs.MsgUpdateClient));
-        IUpdateClientMsgs.UpdateClientOutput memory output =
-            UPDATE_CLIENT.updateClient(
-                msg_.clientState,
-                msg_.trustedConsensusState,
-                msg_.proposedHeader,
-                msg_.time
-            );
+        IUpdateClientMsgs.UpdateClientOutput memory output = UPDATE_CLIENT.updateClient(msg_);
 
         _validateUpdateClientOutput(output);
 
@@ -162,6 +156,44 @@ contract SP1ICS07Tendermint is
 
         return updateResult;
     }
+
+    function updateClientMsg(
+        IUpdateClientMsgs.MsgUpdateClient calldata msg_
+    )
+        external
+        notFrozen
+        onlyProofSubmitter
+        returns (ILightClientMsgs.UpdateResult)
+    {
+        IUpdateClientMsgs.UpdateClientOutput memory output = UPDATE_CLIENT.updateClient(msg_);
+
+        _validateUpdateClientOutput(output);
+
+        ILightClientMsgs.UpdateResult updateResult = _checkUpdateResult(output);
+        if (updateResult == ILightClientMsgs.UpdateResult.Update) {
+            // adding the new consensus state to the mapping
+            if (output.newHeight.revisionHeight > clientState.latestHeight.revisionHeight) {
+                clientState.latestHeight = output.newHeight;
+            }
+            _consensusStateHashes[output.newHeight.revisionHeight] = keccak256(abi.encode(output.newConsensusState));
+        } else if (updateResult == ILightClientMsgs.UpdateResult.Misbehaviour) {
+            clientState.isFrozen = true;
+        } else if (updateResult == ILightClientMsgs.UpdateResult.NoOp) {
+            return ILightClientMsgs.UpdateResult.NoOp;
+        }
+
+        // TODO: take input to put in verifying proof
+        // uint256[8] calldata proof = msg_.proof;
+        // if (proof[4] == 0 && proof[5] == 0 && proof[6] == 0 && proof[7] == 0) {
+        //     uint256[4] memory compressedProof = [proof[0], proof[1], proof[2], proof[3]];
+        //     VERIFIER.verifyCompressedProof(compressedProof, input);
+        // } else {
+        //     VERIFIER.verifyProof(proof, input);
+        // }
+
+        return updateResult;
+    }
+
 
     /// @inheritdoc ILightClient
     function verifyMembership(ILightClientMsgs.MsgVerifyMembership calldata msg_)

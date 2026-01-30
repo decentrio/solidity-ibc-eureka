@@ -10,8 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
-	updateClientContract "operator/bindings/UpdateClient"
+	tendermintContract "prover/bindings/SP1ICS07Tendermint"
 
 	"github.com/cometbft/cometbft/p2p"
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
@@ -39,9 +38,16 @@ type LightBlock struct {
 	BlockHeight  int64
 }
 
+type Header struct {
+	SignedHeader      commettypes.SignedHeader
+	ValidatorSet      commettypes.ValidatorSet
+	TrustedHeight     clienttypes.Height
+	TrustedValidators commettypes.ValidatorSet
+}
+
 type SP1ICS07TendermintGenesis struct {
-	TrustedClientState    updateClientContract.IICS07TendermintMsgsClientState
-	TrustedConsensusState updateClientContract.IICS07TendermintMsgsConsensusState
+	TrustedClientState    tendermintContract.IICS07TendermintMsgsClientState
+	TrustedConsensusState tendermintContract.IICS07TendermintMsgsConsensusState
 }
 
 type SupportedZkAlgorithm uint8
@@ -121,10 +127,10 @@ func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, pr
 		return nil, fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
 	}
 
-	clientState := updateClientContract.IICS07TendermintMsgsClientState{
+	clientState := tendermintContract.IICS07TendermintMsgsClientState{
 		ChainId:    chainId,
 		TrustLevel: trustThreshold,
-		LatestHeight: updateClientContract.IICS02ClientMsgsHeight{
+		LatestHeight: tendermintContract.IICS02ClientMsgsHeight{
 			RevisionNumber: revision,
 			RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
 		},
@@ -134,7 +140,7 @@ func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, pr
 		UnbondingPeriod: uint32(unbondingPeriod),
 	}
 
-	consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
+	consensusState := tendermintContract.IICS07TendermintMsgsConsensusState{
 		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
 		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
 		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
@@ -270,28 +276,135 @@ func ProvePath(client *rpchttp.HTTP, height int64, path [][]byte) ([]byte, *comm
 	return result.Response.Value, &proof, nil
 }
 
+func ParseSignedHeader(header commettypes.SignedHeader) tendermintContract.IICS07TendermintMsgsSignedHeader {
+	hasLastCommitHash := false
+	if len(header.Header.LastCommitHash) > 0 {
+		hasLastCommitHash = true
+	}
+
+	hasDataHash := false
+	if len(header.Header.DataHash) > 0 {
+		hasDataHash = true
+	}
+
+	hasLastResultsHash := false
+	if len(header.Header.LastResultsHash) > 0 {
+		hasLastResultsHash = true
+	}
+
+	hasEnvidenceHash := false
+	if len(header.Header.EvidenceHash) > 0 {
+		hasEnvidenceHash = true
+	}
+
+	commitSigs := []tendermintContract.IICS07TendermintMsgsCommitSig{}
+	for _, sig := range header.Commit.Signatures {
+		commitSigs = append(commitSigs, tendermintContract.IICS07TendermintMsgsCommitSig{
+			Flag: uint8(sig.BlockIDFlag),
+			Data: tendermintContract.IICS07TendermintMsgsCommitSigData{
+				ValidatorAddress: sig.ValidatorAddress,
+				Timestamp:        big.NewInt(sig.Timestamp.Unix()),
+				HasSignature:     len(sig.Signature) > 0,
+				Signature:        sig.Signature,
+			},
+		})
+	}
+	return tendermintContract.IICS07TendermintMsgsSignedHeader{
+		Header: tendermintContract.IICS07TendermintMsgsBlockHeader{
+			Version: tendermintContract.IICS07TendermintMsgsVersion{
+				BlockVersion: header.Header.Version.Block,
+				AppVersion:   header.Header.Version.App,
+			},
+			ChainId:        header.Header.ChainID,
+			Height:         uint64(header.Header.Height),
+			Time:           big.NewInt(header.Header.Time.Unix()),
+			HasLastBlockId: true,
+			LastBlockId: tendermintContract.IICS07TendermintMsgsBlockId{
+				HashData: bytesToBytes32(header.Header.LastBlockID.Hash),
+				PartSetHeader: tendermintContract.IICS07TendermintMsgsPartSetHeader{
+					Total:    header.Header.LastBlockID.PartSetHeader.Total,
+					HashData: bytesToBytes32(header.Header.LastBlockID.PartSetHeader.Hash),
+				},
+			},
+			HasLastCommitHash:  hasLastCommitHash,
+			LastCommitHash:     bytesToBytes32(header.Header.LastCommitHash),
+			HasDataHash:        hasDataHash,
+			DataHash:           bytesToBytes32(header.Header.DataHash),
+			ValidatorsHash:     bytesToBytes32(header.Header.ValidatorsHash),
+			NextValidatorsHash: bytesToBytes32(header.Header.NextValidatorsHash),
+			ConsensusHash:      bytesToBytes32(header.Header.ConsensusHash),
+			AppHash:            bytesToBytes32(header.Header.AppHash),
+			HasLastResultsHash: hasLastResultsHash,
+			LastResultsHash:    bytesToBytes32(header.Header.LastResultsHash),
+			HasEvidenceHash:    hasEnvidenceHash,
+			EvidenceHash:       bytesToBytes32(header.Header.EvidenceHash),
+			ProposerAddress:    header.Header.ProposerAddress,
+		},
+		Commit: tendermintContract.IICS07TendermintMsgsBlockCommit{
+			Height: uint64(header.Commit.Height),
+			Round:  uint32(header.Commit.Round),
+			BlockId: tendermintContract.IICS07TendermintMsgsBlockId{
+				HashData: bytesToBytes32(header.Commit.BlockID.Hash),
+				PartSetHeader: tendermintContract.IICS07TendermintMsgsPartSetHeader{
+					Total:    header.Commit.BlockID.PartSetHeader.Total,
+					HashData: bytesToBytes32(header.Commit.BlockID.PartSetHeader.Hash),
+				},
+			},
+			CommitSigs: commitSigs,
+		},
+	}
+}
+
+func ParseValidatorSet(valSet commettypes.ValidatorSet) tendermintContract.IICS07TendermintMsgsValidatorSet {
+	validators := []tendermintContract.IICS07TendermintMsgsValidatorInfo{}
+	for _, val := range valSet.Validators {
+		validators = append(validators, tendermintContract.IICS07TendermintMsgsValidatorInfo{
+			ValAddress:       val.Address,
+			PubKey:           bytesToBytes32(val.PubKey.Bytes()),
+			VotingPower:      uint64(val.VotingPower),
+			ProposerPriority: val.ProposerPriority,
+		})
+	}
+
+	proposer := tendermintContract.IICS07TendermintMsgsValidatorInfo{}
+	if valSet.Proposer != nil {
+		proposer = tendermintContract.IICS07TendermintMsgsValidatorInfo{
+			ValAddress:       valSet.Proposer.Address,
+			PubKey:           bytesToBytes32(valSet.Proposer.PubKey.Bytes()),
+			VotingPower:      uint64(valSet.Proposer.VotingPower),
+			ProposerPriority: valSet.Proposer.ProposerPriority,
+		}
+	}
+	return tendermintContract.IICS07TendermintMsgsValidatorSet{
+		Validators:       validators,
+		HasProposer:      valSet.Proposer != nil,
+		Proposer:         proposer,
+		TotalVotingPower: uint64(valSet.TotalVotingPower()),
+	}
+}
+
 // parseTrustThreshold parses a trust threshold fraction string like "2/3"
-func ParseTrustThreshold(value string) (updateClientContract.IICS07TendermintMsgsTrustThreshold, error) {
+func ParseTrustThreshold(value string) (tendermintContract.IICS07TendermintMsgsTrustThreshold, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
+		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid trust threshold format: %s (expected format: 'numerator/denominator')", value)
 	}
 
 	numerator, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
+		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid numerator: %s", parts[0])
 	}
 
 	denominator, err := strconv.ParseUint(parts[1], 10, 64)
 	if err != nil {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
+		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("invalid denominator: %s", parts[1])
 	}
 
 	if denominator == 0 {
-		return updateClientContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
+		return tendermintContract.IICS07TendermintMsgsTrustThreshold{}, fmt.Errorf("denominator cannot be zero")
 	}
 
-	return updateClientContract.IICS07TendermintMsgsTrustThreshold{
+	return tendermintContract.IICS07TendermintMsgsTrustThreshold{
 		Numerator:   uint8(numerator),
 		Denominator: uint8(denominator),
 	}, nil

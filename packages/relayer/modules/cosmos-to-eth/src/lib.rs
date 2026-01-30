@@ -10,6 +10,8 @@
 
 pub mod tx_builder;
 
+use std::collections::HashMap;
+
 use alloy::{
     primitives::{Address, TxHash},
     providers::{Provider, RootProvider},
@@ -23,8 +25,6 @@ use sp1_ics07_tendermint_prover::programs::{
     MembershipProgram, MisbehaviourProgram, SP1ICS07TendermintPrograms,
     UpdateClientAndMembershipProgram, UpdateClientProgram,
 };
-use sp1_prover::components::CpuProverComponents;
-use sp1_sdk::{Prover, ProverClient};
 use tendermint::Hash;
 use tendermint_rpc::HttpClient;
 use tonic::{Request, Response};
@@ -46,7 +46,7 @@ struct CosmosToEthRelayerModuleService {
     /// The chain listener for `EthEureka`.
     pub eth_listener: eth_eureka::ChainListener<RootProvider>,
     /// The transaction builder for `EthEureka`.
-    pub tx_builder: TxBuilder<RootProvider, CpuProverComponents>,
+    pub tx_builder: TxBuilder<RootProvider>,
 }
 
 /// The configuration for the Cosmos to Ethereum relayer module.
@@ -59,9 +59,13 @@ pub struct CosmosToEthConfig {
     /// The EVM RPC URL.
     pub eth_rpc_url: String,
     /// The SP1 prover configuration.
-    pub sp1_prover: SP1Config,
-    /// The SP1 program paths.
-    pub sp1_programs: SP1ProgramPaths,
+    // pub sp1_prover: SP1Config,
+    // /// The SP1 program paths.
+    // pub sp1_programs: SP1ProgramPaths,
+    pub wrapper_verifier: Address,
+    pub membership: Address,
+    pub misbehaviour: Address,
+    pub update_client: Address,
 }
 
 /// The paths to the SP1 programs.
@@ -143,89 +147,98 @@ impl CosmosToEthRelayerModuleService {
 
         let eth_listener = eth_eureka::ChainListener::new(config.ics26_address, provider.clone());
 
-        let sp1_programs = config
-            .sp1_programs
-            .read_programs()
-            .unwrap_or_else(|e| panic!("failed to read SP1 programs: {e}"));
+        let tx_builder = TxBuilder::new(
+                    config.ics26_address,
+                    config.wrapper_verifier,
+                    config.membership,
+                    config.update_client,
+                    config.misbehaviour,
+                    provider,
+                    tm_client,
+    );
+        // let sp1_programs = config
+        //     .sp1_programs
+        //     .read_programs()
+        //     .unwrap_or_else(|e| panic!("failed to read SP1 programs: {e}"));
 
-        let tx_builder = match config.sp1_prover {
-            SP1Config::Mock => {
-                let prover: Box<dyn Prover<CpuProverComponents>> =
-                    Box::new(ProverClient::builder().mock().build());
-                TxBuilder::new(
-                    config.ics26_address,
-                    provider,
-                    tm_client,
-                    prover,
-                    sp1_programs,
-                )
-            }
-            SP1Config::Env => {
-                let prover: Box<dyn Prover<CpuProverComponents>> =
-                    Box::new(ProverClient::from_env());
-                TxBuilder::new(
-                    config.ics26_address,
-                    provider,
-                    tm_client,
-                    prover,
-                    sp1_programs,
-                )
-            }
-            SP1Config::Cpu => {
-                let prover: Box<dyn Prover<CpuProverComponents>> =
-                    Box::new(ProverClient::builder().cpu().build());
-                TxBuilder::new(
-                    config.ics26_address,
-                    provider,
-                    tm_client,
-                    prover,
-                    sp1_programs,
-                )
-            }
-            SP1Config::Cuda => {
-                let prover: Box<dyn Prover<CpuProverComponents>> =
-                    Box::new(ProverClient::builder().cuda().build());
-                TxBuilder::new(
-                    config.ics26_address,
-                    provider,
-                    tm_client,
-                    prover,
-                    sp1_programs,
-                )
-            }
-            SP1Config::Network {
-                network_private_key,
-                network_rpc_url,
-                private_cluster,
-            } => {
-                let mut prover_builder = ProverClient::builder().network();
-                if let Some(private_key) = network_private_key {
-                    prover_builder = prover_builder.private_key(&private_key);
-                }
-                if let Some(rpc_url) = network_rpc_url {
-                    prover_builder = prover_builder.rpc_url(&rpc_url);
-                }
-                if private_cluster {
-                    TxBuilder::new(
-                        config.ics26_address,
-                        provider,
-                        tm_client,
-                        prover_builder.build(),
-                        sp1_programs,
-                    )
-                } else {
-                    let prover: Box<dyn Prover<CpuProverComponents>> =
-                        Box::new(prover_builder.build());
-                    TxBuilder::new(
-                        config.ics26_address,
-                        provider,
-                        tm_client,
-                        prover,
-                        sp1_programs,
-                    )
-                }
-            }
-        };
+        // let tx_builder = match config.sp1_prover {
+        //     SP1Config::Mock => {
+        //         let prover: Box<dyn Prover<CpuProverComponents>> =
+        //             Box::new(ProverClient::builder().mock().build());
+        //         TxBuilder::new(
+        //             config.ics26_address,
+        //             provider,
+        //             tm_client,
+        //             prover,
+        //             sp1_programs,
+        //         )
+        //     }
+        //     SP1Config::Env => {
+        //         let prover: Box<dyn Prover<CpuProverComponents>> =
+        //             Box::new(ProverClient::from_env());
+        //         TxBuilder::new(
+        //             config.ics26_address,
+        //             provider,
+        //             tm_client,
+        //             prover,
+        //             sp1_programs,
+        //         )
+        //     }
+        //     SP1Config::Cpu => {
+        //         let prover: Box<dyn Prover<CpuProverComponents>> =
+        //             Box::new(ProverClient::builder().cpu().build());
+        //         TxBuilder::new(
+        //             config.ics26_address,
+        //             provider,
+        //             tm_client,
+        //             prover,
+        //             sp1_programs,
+        //         )
+        //     }
+        //     SP1Config::Cuda => {
+        //         let prover: Box<dyn Prover<CpuProverComponents>> =
+        //             Box::new(ProverClient::builder().cuda().build());
+        //         TxBuilder::new(
+        //             config.ics26_address,
+        //             provider,
+        //             tm_client,
+        //             prover,
+        //             sp1_programs,
+        //         )
+        //     }
+        //     SP1Config::Network {
+        //         network_private_key,
+        //         network_rpc_url,
+        //         private_cluster,
+        //     } => {
+        //         let mut prover_builder = ProverClient::builder().network();
+        //         if let Some(private_key) = network_private_key {
+        //             prover_builder = prover_builder.private_key(&private_key);
+        //         }
+        //         if let Some(rpc_url) = network_rpc_url {
+        //             prover_builder = prover_builder.rpc_url(&rpc_url);
+        //         }
+        //         if private_cluster {
+        //             TxBuilder::new(
+        //                 config.ics26_address,
+        //                 provider,
+        //                 tm_client,
+        //                 prover_builder.build(),
+        //                 sp1_programs,
+        //             )
+        //         } else {
+        //             let prover: Box<dyn Prover<CpuProverComponents>> =
+        //                 Box::new(prover_builder.build());
+        //             TxBuilder::new(
+        //                 config.ics26_address,
+        //                 provider,
+        //                 tm_client,
+        //                 prover,
+        //                 sp1_programs,
+        //             )
+        //         }
+        //     }
+        // };
 
         Self {
             tm_listener,
@@ -262,7 +275,7 @@ impl RelayerService for CosmosToEthRelayerModuleService {
                 ibc_version: "2".to_string(),
                 ibc_contract: String::new(),
             }),
-            metadata: self.tx_builder.metadata(),
+            metadata: HashMap::new(),
         }))
     }
 

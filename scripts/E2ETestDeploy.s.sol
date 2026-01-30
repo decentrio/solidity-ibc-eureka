@@ -24,6 +24,12 @@ import { Escrow } from "../contracts/utils/Escrow.sol";
 import { SP1Verifier as SP1VerifierPlonk } from "@sp1-contracts/v5.0.0/SP1VerifierPlonk.sol";
 import { SP1Verifier as SP1VerifierGroth16 } from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import { SP1MockVerifier } from "@sp1-contracts/SP1MockVerifier.sol";
+import { IGroth16Verifier } from "../contracts/interfaces/IVerifier.sol";
+import { Groth16Verifier } from "../contracts/utils/Groth16Verifier.sol";
+import { WrapperVerifier } from "../contracts/utils/WrapperVerifier.sol";
+import { Membership } from "../contracts/programs/Membership.sol";
+import { UpdateClient } from "../contracts/programs/UpdateClient.sol";
+import { Misbehaviour } from "../contracts/programs/Misbehaviour.sol";
 import { AccessManager } from "@openzeppelin-contracts/access/manager/AccessManager.sol";
 
 /// @dev See the Solidity Scripting tutorial: https://book.getfoundry.sh/tutorials/solidity-scripting
@@ -41,9 +47,14 @@ contract E2ETestDeploy is Script, IICS07TendermintMsgs, DeployAccessManagerWithR
         vm.startBroadcast();
 
         // Deploy the SP1 verifiers for testing
-        address verifierPlonk = address(new SP1VerifierPlonk());
-        address verifierGroth16 = address(new SP1VerifierGroth16());
-        address verifierMock = address(new SP1MockVerifier());
+        // address verifierPlonk = address(new SP1VerifierPlonk());
+        address verifierGroth16 = address(new Groth16Verifier());
+        address wrapperVerifier = address(new WrapperVerifier(IGroth16Verifier(verifierGroth16)));
+
+        address membership = address(new Membership());
+        address updateClient = address(new UpdateClient());
+        address misbehaviour = address(new Misbehaviour());
+        // address verifierMock = address(new SP1MockVerifier());
 
         // Deploy IBC Eureka with proxy
         address ics26RouterLogic = address(new ICS26Router());
@@ -85,9 +96,11 @@ contract E2ETestDeploy is Script, IICS07TendermintMsgs, DeployAccessManagerWithR
         vm.stopBroadcast();
 
         string memory json = "json";
-        json.serialize("verifierPlonk", Strings.toHexString(address(verifierPlonk)));
         json.serialize("verifierGroth16", Strings.toHexString(address(verifierGroth16)));
-        json.serialize("verifierMock", Strings.toHexString(address(verifierMock)));
+        json.serialize("wrapperVerifier", Strings.toHexString(address(wrapperVerifier)));
+        json.serialize("membership", Strings.toHexString(address(membership)));
+        json.serialize("updateClient", Strings.toHexString(address(updateClient)));
+        json.serialize("misbehaviour", Strings.toHexString(address(misbehaviour)));
         json.serialize("ics26Router", Strings.toHexString(address(routerProxy)));
         json.serialize("ics20Transfer", Strings.toHexString(address(transferProxy)));
         string memory finalJson = json.serialize("erc20", Strings.toHexString(address(erc20)));

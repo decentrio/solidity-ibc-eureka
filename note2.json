@@ -1,0 +1,11 @@
+{
+    "address1": "0x8943545177806ED17B9F23F0a21ee5948eCaa776",
+    "address2": "0xE25583099BA105D9ec0A67f5Ae86D90e50036425",
+    "erc20": "0x9ecb6f04d47fa2599449aaa523bf84476f7ad80f",
+    "ics20Transfer": "0x9fcf7d13d10dedf17d0f24c62f0cf4ed462f65b7",
+    "ics26Router": "0x8f0342a7060e76dfc7f6e9debfad9b9ec919952c",
+    "verifierGroth16": "0x17435cce3d1b4fa2e5f8a08ed921d57c6762a180",
+    "verifierMock": "0x703848f4c85f18e3acd8196c8ec91eb0b7bd0797",
+    "verifierPlonk": "0xb4b46bdaa835f8e4b4d8e208b6559cd267851051",
+    "ics07": "0x2b45cD38B213Bbd3A1A848bf2467927c976877Cb"
+}

@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::FromStrError;
 
 use super::sp1_ics07;
-use alloy_sol_types::SolValue;
+// use alloy_sol_types::SolValue;
 use ibc_client_tendermint_types::ConsensusState as ICS07TendermintConsensusState;
 use ibc_core_commitment_types::{commitment::CommitmentRoot, merkle::MerklePath};
 use tendermint::{hash::Algorithm, Time};
@@ -109,23 +109,23 @@ impl From<IMembershipMsgs::KVPair> for (MerklePath, Vec<u8>) {
     }
 }
 
-impl From<IMembershipMsgs::SP1MembershipProof> for IMembershipMsgs::MembershipProof {
-    fn from(proof: IMembershipMsgs::SP1MembershipProof) -> Self {
-        Self {
-            proofType: IMembershipMsgs::MembershipProofType::SP1MembershipProof,
-            proof: proof.abi_encode().into(),
-        }
-    }
-}
+// impl From<IMembershipMsgs::SP1MembershipProof> for IMembershipMsgs::MembershipProof {
+//     fn from(proof: IMembershipMsgs::SP1MembershipProof) -> Self {
+//         Self {
+//             proofType: IMembershipMsgs::MembershipProofType::SP1MembershipProof,
+//             proof: proof.abi_encode().into(),
+//         }
+//     }
+// }
 
-impl From<IMembershipMsgs::SP1MembershipAndUpdateClientProof> for IMembershipMsgs::MembershipProof {
-    fn from(proof: IMembershipMsgs::SP1MembershipAndUpdateClientProof) -> Self {
-        Self {
-            proofType: IMembershipMsgs::MembershipProofType::SP1MembershipAndUpdateClientProof,
-            proof: proof.abi_encode().into(),
-        }
-    }
-}
+// impl From<IMembershipMsgs::SP1MembershipAndUpdateClientProof> for IMembershipMsgs::MembershipProof {
+//     fn from(proof: IMembershipMsgs::SP1MembershipAndUpdateClientProof) -> Self {
+//         Self {
+//             proofType: IMembershipMsgs::MembershipProofType::SP1MembershipAndUpdateClientProof,
+//             proof: proof.abi_encode().into(),
+//         }
+//     }
+// }
 
 impl From<sp1_ics07::IICS07TendermintMsgs::TrustThreshold>
     for IICS07TendermintMsgs::TrustThreshold
