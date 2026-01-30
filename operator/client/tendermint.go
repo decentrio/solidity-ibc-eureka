@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
-	updateClientContract "operator/bindings/UpdateClient"
+	tendermintContract "prover/bindings/SP1ICS07Tendermint"
+	updateClientContract "prover/bindings/UpdateClient"
 
 	"github.com/cometbft/cometbft/p2p"
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
@@ -37,6 +37,13 @@ type LightBlock struct {
 	NextValSet   commettypes.ValidatorSet
 	PeerId       p2p.ID
 	BlockHeight  int64
+}
+
+type Header struct {
+	SignedHeader      commettypes.SignedHeader
+	ValidatorSet      commettypes.ValidatorSet
+	TrustedHeight     clienttypes.Height
+	TrustedValidators commettypes.ValidatorSet
 }
 
 type SP1ICS07TendermintGenesis struct {

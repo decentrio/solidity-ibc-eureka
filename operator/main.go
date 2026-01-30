@@ -2,14 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/sha512"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
 	"strconv"
+	"time"
 
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	commettypes "github.com/cometbft/cometbft/types"
+	"github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,10 +24,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
-	tendermintClient "operator/client"
-	"operator/keys"
-	"operator/runner"
+	tendermintContract "prover/bindings/SP1ICS07Tendermint"
+	tendermintClient "prover/client"
+	"prover/keys"
+	"prover/runner"
 )
 
 const (
@@ -33,6 +39,7 @@ const (
 	flagTrustingPeriod = "trusting-period"
 	flagTrustedBlock   = "trusted-block"
 	flagMembership     = "membership"
+	flagTargetBlock    = "target-block"
 )
 
 func main() {
@@ -42,8 +49,8 @@ func main() {
 	logger := zLogger.Sugar()
 
 	rootCmd := &cobra.Command{
-		Use:   "operator [command]",
-		Short: "command for operator",
+		Use:   "prover [command]",
+		Short: "command for prover",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},
@@ -72,7 +79,7 @@ func Start(logger *zap.Logger) *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool(flagOnlyOnce, false, "run only once")
-	// cmd.Flags().String(flagConfigPath, ".operator/config.yaml", "the path to your operator priv and pub key")
+	// cmd.Flags().String(flagConfigPath, ".prover/config.yaml", "the path to your prover priv and pub key")
 	return cmd
 }
 
@@ -171,9 +178,150 @@ func UpdateClientCmd(logger *zap.Logger) *cobra.Command {
 		Use:   "update-client",
 		Short: "update client",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			err := godotenv.Load()
+			if err != nil {
+				return fmt.Errorf("error loading .env file: %v", err)
+			}
+
+			// Read RPC endpoint from environment variable
+			tendermintRpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+			if tendermintRpcEndpoint == "" {
+				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			}
+			tendermintRpcClient, err := rpchttp.New(tendermintRpcEndpoint, "/websocket")
+			if err != nil {
+				return fmt.Errorf("failed to create RPC client: %w", err)
+			}
+			ethRpcEndpoint := os.Getenv("ETH_RPC_URL")
+			if ethRpcEndpoint == "" {
+				return fmt.Errorf("ETH_RPC_URL environment variable is required in .env file")
+			}
+
+			hexAddress := os.Getenv("CONTRACT_ADDRESS")
+			if hexAddress == "" {
+				return fmt.Errorf("CONTRACT_ADDRESS environment variable is required in .env file")
+			}
+
+			privKey := os.Getenv("PRIVATE_KEY")
+			if privKey == "" {
+				return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
+			}
+			privateKey, err := keys.RestoreKey(privKey)
+			if err != nil {
+				return fmt.Errorf("failed to restore private key: %w", err)
+			}
+
+			chainIdEth := os.Getenv("CHAIN_ID")
+			if chainIdEth == "" {
+				return fmt.Errorf("CHAIN_ID environment variable is required in .env file")
+			}
+
+			chainIdInt := big.NewInt(0)
+			chainIdInt, ok := chainIdInt.SetString(chainIdEth, 10)
+			if !ok {
+				return fmt.Errorf("invalid chain id: %v", err)
+			}
+
+			ethClient, err := ethclient.Dial(ethRpcEndpoint)
+			if err != nil {
+				return fmt.Errorf("failed to create Ethereum client: %w", err)
+			}
+
+			trustedBlock, err := cmd.Flags().GetInt64(flagTrustedBlock)
+			if err != nil {
+				return fmt.Errorf("failed to get trusted block: %w", err)
+			}
+			trustingPeriod, err := cmd.Flags().GetUint32(flagTrustingPeriod)
+			if err != nil {
+				return fmt.Errorf("failed to get trusting period: %w", err)
+			}
+			trustLevel, err := cmd.Flags().GetString(flagTrustLevel)
+			if err != nil {
+				return fmt.Errorf("failed to get trust level from flag: %w", err)
+			}
+			proofType, err := cmd.Flags().GetString(flagProofType)
+			if err != nil {
+				return fmt.Errorf("failed to get proof type from flag: %w", err)
+			}
+			genesis, err := tendermintClient.GetGenesis(trustedBlock, trustingPeriod, trustLevel, proofType)
+			if err != nil {
+				return fmt.Errorf("failed to get genesis: %w", err)
+			}
+
+			trustedClientState := genesis.TrustedClientState
+			trustedConsensusState := genesis.TrustedConsensusState
+
+			targetBlock, err := cmd.Flags().GetInt64(flagTargetBlock)
+			if err != nil {
+				return fmt.Errorf("failed to get target block: %w", err)
+			}
+
+			trustedLightBlock, err := tendermintClient.GetLightBlock(tendermintRpcClient, trustedBlock)
+			if err != nil {
+				return fmt.Errorf("failed to get trusted light block: %w", err)
+			}
+			targetLightBlock, err := tendermintClient.GetLightBlock(tendermintRpcClient, int64(targetBlock))
+			if err != nil {
+				return fmt.Errorf("failed to get target light block: %w", err)
+			}
+
+			chainId := trustedLightBlock.SignedHeader.Header.ChainID
+			revision := types.ParseChainID(chainId)
+			header := tendermintClient.Header{
+				SignedHeader: targetLightBlock.SignedHeader,
+				ValidatorSet: targetLightBlock.ValSet,
+				TrustedHeight: types.Height{
+					RevisionNumber: revision,
+					RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
+				},
+				TrustedValidators: trustedLightBlock.ValSet,
+			}
+
+			currentTime := time.Now().Unix()
+
+			untrustedHeaderCommit := header.SignedHeader.Commit
+			if untrustedHeaderCommit == nil {
+				return fmt.Errorf("untrusted header commit is nil")
+			}
+
+			untrustedHeaderSigs := untrustedHeaderCommit.Signatures
+
+			for i, sig := range untrustedHeaderSigs {
+				trustedValidator := header.TrustedValidators.Validators[i]
+
+				a := trustedValidator.PubKey.Bytes()
+				sig := sig.Signature
+				if len(sig) != 64 {
+					return fmt.Errorf("invalid signature length: %d", len(sig))
+				}
+
+				vote := commettypes.CanonicalizeVote(chainId, &cmtproto.Vote{
+					Type: cmtproto.PrecommitType,
+				})
+				r := new(big.Int).SetBytes(sig[:32])
+				s := new(big.Int).SetBytes(sig[32:])
+
+				hasher := sha512.New()
+				// Precompute H = SHA512(R || A || msg)
+				hasher.Reset()
+				hasher.Write(r)
+				hasher.Write(a)
+				hasher.Write()
+				sum := hasher.Sum(nil)
+			}
+
 			return nil
 		},
 	}
+
+	cmd.Flags().String(flagProofType, "groth16", "the type of proof to use (groth16, plonk)")
+	cmd.Flags().Int64(flagTrustedBlock, 0, "the trusted block height, if <height> is 0 then catch latest block")
+	cmd.Flags().String(flagOutput, "json", "the output structure for the genesis state (json, file)")
+	cmd.Flags().String(flagOutputPath, "./data/genesis.json", "the path to the output file for the genesis state")
+	cmd.Flags().String(flagTrustLevel, "2/3", "the trust level for the genesis state (e.g., 2/3)")
+	cmd.Flags().Uint32(flagTrustingPeriod, 0, "the trusting period for the genesis state")
+	cmd.Flags().Int64(flagTargetBlock, 0, "the target block height for update client")
+	cmd.Flags().Bool(flagMembership, true, "verify membership/non-membership proof")
 	return cmd
 }
 
@@ -274,7 +422,6 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			}
 
 			fromAddress := crypto.PubkeyToAddress(*publicKey)
-			crypto.HexToECDSA()
 			nonce, err := ethClient.PendingNonceAt(context.Background(), fromAddress)
 			if err != nil {
 				log.Fatal(err)

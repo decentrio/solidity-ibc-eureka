@@ -523,7 +523,7 @@ where
             min_sync_committee_participants: spec.sync_committee_size.div_ceil(3),
             sync_committee_size: spec.sync_committee_size,
             genesis_time: genesis.genesis_time,
-            genesis_slot: spec.genesis_slot,
+            genesis_slot: 0,
             fork_parameters: spec.to_fork_parameters(),
             seconds_per_slot: spec.seconds_per_slot,
             slots_per_epoch: spec.slots_per_epoch,
@@ -574,6 +574,9 @@ where
             data: serde_json::to_vec(&eth_consensus_state)?,
         };
 
+        println!("eth_client_state: {:?}", eth_client_state);
+        println!("client_state: {:?}", client_state);
+        println!("consensus_state: {:?}", eth_consensus_state);
         let msg = MsgCreateClient {
             client_state: Some(Any::from_msg(&client_state)?),
             consensus_state: Some(Any::from_msg(&consensus_state)?),

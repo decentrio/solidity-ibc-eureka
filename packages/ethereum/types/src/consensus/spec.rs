@@ -28,8 +28,8 @@ pub struct Spec {
     /// The genesis fork version.
     pub genesis_fork_version: Version,
     /// The genesis slot.
-    #[serde_as(as = "DisplayFromStr")]
-    pub genesis_slot: u64,
+    // #[serde_as(as = "DisplayFromStr")]
+    // pub genesis_slot: u64,
     /// The altair fork version.
     pub altair_fork_version: Version,
     /// The altair fork epoch.
@@ -69,7 +69,7 @@ impl Spec {
     pub const fn to_fork_parameters(&self) -> ForkParameters {
         ForkParameters {
             genesis_fork_version: self.genesis_fork_version,
-            genesis_slot: self.genesis_slot,
+            genesis_slot: 0,
             altair: Fork {
                 version: self.altair_fork_version,
                 epoch: self.altair_fork_epoch,

@@ -1,4 +1,4 @@
-module operator
+module prover
 
 go 1.24
 
