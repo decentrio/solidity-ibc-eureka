@@ -130,7 +130,11 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	return nil
 }
 
-func (h *Handler) SendCosmosTx(svcCtx services.Context, msg proto.Message) error {
+func (h *Handler) SendCosmosTx(svcCtx services.Context, msg any) error {
+	protoMsg, ok := msg.(proto.Message)
+	if !ok {
+		return fmt.Errorf("message must be a proto.Message")
+	}
 	// Get the private key from environment variable
 	privKeyHex := os.Getenv("COSMOS_PRIVATE_KEY")
 	if privKeyHex == "" {
@@ -189,7 +193,13 @@ func (h *Handler) SendCosmosTx(svcCtx services.Context, msg proto.Message) error
 	// Build the transaction
 	txBuilder := txConfig.NewTxBuilder()
 
-	if err := txBuilder.SetMsgs(msg); err != nil {
+	// Convert the proto.Message to sdk.Msg
+	sdkMsg, ok := protoMsg.(sdk.Msg)
+	if !ok {
+		return fmt.Errorf("message does not implement sdk.Msg interface")
+	}
+
+	if err := txBuilder.SetMsgs(sdkMsg); err != nil {
 		return fmt.Errorf("failed to set messages: %w", err)
 	}
 

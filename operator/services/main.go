@@ -11,6 +11,7 @@ import (
 
 type TransactionHandler interface {
 	SendTx(ctx Context, msg any) error
+	SendCosmosTx(ctx Context, msg any) error
 }
 
 type EventListener interface {
