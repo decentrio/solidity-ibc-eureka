@@ -113,7 +113,6 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 }
 
 func (w *Worker) UpdateEthClient(ctx Context) error {
-	// Get the beacon API URL and Ethereum client ID from context
 	beaconAPIURL := ctx.BeaconAPIURL()
 	if beaconAPIURL == "" {
 		return fmt.Errorf("beacon API URL is not configured")
@@ -121,69 +120,53 @@ func (w *Worker) UpdateEthClient(ctx Context) error {
 
 	ethClientID := ctx.EthClientID()
 	if ethClientID == "" {
-		return fmt.Errorf("Ethereum client ID is not configured")
+		return fmt.Errorf("ethereum client ID is not configured")
 	}
 
-	// Query the Ethereum client state from Cosmos to get the trusted slot
 	ethClientState, err := operatorclient.GetEthereumClientState(ctx.CosmosClient(), ethClientID)
 	if err != nil {
 		return fmt.Errorf("failed to get ethereum client state: %w", err)
 	}
 	trustedSlot := ethClientState.LatestSlot
 
-	// Get the latest finality update from the beacon API
 	finalityUpdate, err := operatorclient.GetFinalityUpdate(beaconAPIURL)
 	if err != nil {
 		return fmt.Errorf("failed to get finality update: %w", err)
 	}
 
-	// Parse the finalized slot to check if update is needed
 	finalizedSlot, err := parseSlot(finalityUpdate.FinalizedHeader.Beacon.Slot)
 	if err != nil {
 		return fmt.Errorf("failed to parse finalized slot: %w", err)
 	}
 
-	// Check if update is needed
 	if finalizedSlot <= trustedSlot {
-		ctx.Logger.Printf("No update needed: finalized slot %d <= trusted slot %d", finalizedSlot, trustedSlot)
 		return nil
 	}
 
-	// Calculate sync committee periods
 	trustedPeriod := ethClientState.ComputeSyncCommitteePeriodAtSlot(trustedSlot)
 	targetPeriod := ethClientState.ComputeSyncCommitteePeriodAtSlot(finalizedSlot)
 
-	ctx.Logger.Printf("Updating Ethereum client: trusted slot %d (period %d) -> finalized slot %d (period %d)",
-		trustedSlot, trustedPeriod, finalizedSlot, targetPeriod)
-
-	// Check if we're crossing sync committee periods
 	if targetPeriod > trustedPeriod {
-		// Crossing sync committee periods - fetch light client updates with NextSyncCommittee
 		return w.updateEthClientWithPeriodCrossing(ctx, beaconAPIURL, ethClientID, ethClientState, trustedSlot, trustedPeriod, targetPeriod, finalityUpdate, finalizedSlot)
 	}
 
-	// Same period - use finality update directly
 	return w.updateEthClientSamePeriod(ctx, beaconAPIURL, ethClientID, trustedSlot, finalityUpdate, finalizedSlot)
 }
 
-// updateEthClientSamePeriod handles updates within the same sync committee period
-func (w *Worker) updateEthClientSamePeriod(ctx Context, beaconAPIURL, ethClientID string, trustedSlot uint64, finalityUpdate *operatorclient.LightClientFinalityUpdate, finalizedSlot uint64) error {
-	// Get the block root for the attested slot to fetch the sync committee
+func (w *Worker) updateEthClientSamePeriod(ctx Context, beaconAPIURL, ethClientID string, trustedSlot uint64, finalityUpdate *operatorclient.LightClientFinalityUpdate, _ uint64) error {
 	attestedSlot := finalityUpdate.AttestedHeader.Beacon.Slot
 	blockRoot, err := operatorclient.GetBeaconBlockRoot(beaconAPIURL, attestedSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get beacon block root: %w", err)
 	}
 
-	// Get bootstrap to get the current sync committee
 	bootstrap, err := operatorclient.GetLightClientBootstrap(beaconAPIURL, blockRoot)
 	if err != nil {
-		return fmt.Errorf("failed to get bootstrap: %w", err)
+		return fmt.Errorf("failed to get light client bootstrap: %w", err)
 	}
 
 	syncCommittee := bootstrap.Data.CurrentSyncCommittee
 
-	// Convert finality update to light client update (no next sync committee for same period)
 	consensusUpdate := operatorclient.LightClientUpdate{
 		AttestedHeader:          finalityUpdate.AttestedHeader,
 		NextSyncCommittee:       nil,
@@ -194,7 +177,6 @@ func (w *Worker) updateEthClientSamePeriod(ctx Context, beaconAPIURL, ethClientI
 		SignatureSlot:           finalityUpdate.SignatureSlot,
 	}
 
-	// Build the header with Current sync committee
 	header := operatorclient.EthereumHeader{
 		ActiveSyncCommittee: operatorclient.ActiveSyncCommittee{
 			Current: &syncCommittee,
@@ -203,25 +185,15 @@ func (w *Worker) updateEthClientSamePeriod(ctx Context, beaconAPIURL, ethClientI
 		TrustedSlot:     trustedSlot,
 	}
 
-	// Build and send the MsgUpdateClient
 	msg, err := buildMsgUpdateClient(ethClientID, header)
 	if err != nil {
-		return fmt.Errorf("failed to build MsgUpdateClient: %w", err)
+		return fmt.Errorf("failed to build update client message: %w", err)
 	}
 
-	if err := w.txHandler.SendCosmosTx(ctx, msg); err != nil {
-		return fmt.Errorf("failed to send update client transaction: %w", err)
-	}
-
-	ctx.Logger.Printf("Successfully updated Ethereum client (same period) from slot %d to slot %d", trustedSlot, finalizedSlot)
-	return nil
+	return w.txHandler.SendCosmosTx(ctx, msg)
 }
 
-// updateEthClientWithPeriodCrossing handles updates that cross sync committee periods
-// It sends multiple updates to advance from trustedPeriod to targetPeriod, then a final finality update
 func (w *Worker) updateEthClientWithPeriodCrossing(ctx Context, beaconAPIURL, ethClientID string, ethClientState *operatorclient.EthereumClientState, trustedSlot, trustedPeriod, targetPeriod uint64, finalityUpdate *operatorclient.LightClientFinalityUpdate, finalizedSlot uint64) error {
-	// Fetch light client updates for the period range
-	// We need updates from trustedPeriod to targetPeriod (inclusive)
 	count := targetPeriod - trustedPeriod + 1
 	lightClientUpdates, err := operatorclient.GetLightClientUpdates(beaconAPIURL, trustedPeriod, count)
 	if err != nil {
@@ -232,10 +204,7 @@ func (w *Worker) updateEthClientWithPeriodCrossing(ctx Context, beaconAPIURL, et
 		return fmt.Errorf("no light client updates available for period range %d to %d", trustedPeriod, targetPeriod)
 	}
 
-	ctx.Logger.Printf("Fetched %d light client updates for period crossing", len(lightClientUpdates))
-
-	// Process light client updates for period crossings
-	// Following the Rust relayer pattern: process each period crossing update
+	var msgs []any
 	latestTrustedSlot := trustedSlot
 	latestPeriod := trustedPeriod
 
@@ -245,71 +214,90 @@ func (w *Worker) updateEthClientWithPeriodCrossing(ctx Context, beaconAPIURL, et
 			return fmt.Errorf("failed to parse update finalized slot: %w", err)
 		}
 
-		// Skip updates that don't advance beyond the trusted slot
 		if updateFinalizedSlot <= latestTrustedSlot {
-			ctx.Logger.Printf("Skipping update for slot %d (not advancing beyond %d)", updateFinalizedSlot, latestTrustedSlot)
 			continue
 		}
 
 		updatePeriod := ethClientState.ComputeSyncCommitteePeriodAtSlot(updateFinalizedSlot)
-
-		// Skip updates that don't advance the period
 		if updatePeriod == latestPeriod {
-			ctx.Logger.Printf("Skipping update for slot %d (same period %d)", updateFinalizedSlot, updatePeriod)
 			continue
 		}
 
-		// This update crosses a period boundary
-		// Get the sync committee for the attested slot (this becomes the "next" sync committee)
-		attestedSlot := update.AttestedHeader.Beacon.Slot
-		blockRoot, err := operatorclient.GetBeaconBlockRoot(beaconAPIURL, attestedSlot)
+		blockRoot, err := operatorclient.GetBeaconBlockRoot(beaconAPIURL, fmt.Sprintf("%d", updateFinalizedSlot))
 		if err != nil {
-			return fmt.Errorf("failed to get beacon block root for period crossing: %w", err)
+			return fmt.Errorf("failed to get beacon block root: %w", err)
 		}
 
 		bootstrap, err := operatorclient.GetLightClientBootstrap(beaconAPIURL, blockRoot)
 		if err != nil {
-			return fmt.Errorf("failed to get bootstrap for period crossing: %w", err)
+			return fmt.Errorf("failed to get light client bootstrap: %w", err)
 		}
 
 		syncCommittee := bootstrap.Data.CurrentSyncCommittee
 
-		// Build header with Next sync committee (for period crossing)
-		// The update from GetLightClientUpdates includes NextSyncCommittee and NextSyncCommitteeBranch
 		header := operatorclient.EthereumHeader{
 			ActiveSyncCommittee: operatorclient.ActiveSyncCommittee{
 				Next: &syncCommittee,
 			},
-			ConsensusUpdate: update, // This update has NextSyncCommittee and NextSyncCommitteeBranch populated
+			ConsensusUpdate: update,
 			TrustedSlot:     latestTrustedSlot,
 		}
 
-		// Build and send the MsgUpdateClient
 		msg, err := buildMsgUpdateClient(ethClientID, header)
 		if err != nil {
-			return fmt.Errorf("failed to build MsgUpdateClient for period crossing: %w", err)
+			return fmt.Errorf("failed to build update client message: %w", err)
 		}
 
-		if err := w.txHandler.SendCosmosTx(ctx, msg); err != nil {
-			return fmt.Errorf("failed to send update client transaction for period crossing: %w", err)
-		}
-
-		ctx.Logger.Printf("Successfully updated Ethereum client (period crossing) from slot %d (period %d) to slot %d (period %d)",
-			latestTrustedSlot, latestPeriod, updateFinalizedSlot, updatePeriod)
-
-		// Update tracking variables
+		msgs = append(msgs, msg)
 		latestPeriod = updatePeriod
 		latestTrustedSlot = updateFinalizedSlot
 	}
 
-	// After processing period crossings, check if we need to send a final finality update
-	// This is needed if the finality update's slot is newer than the last period crossing update
 	if finalizedSlot > latestTrustedSlot {
-		ctx.Logger.Printf("Sending final finality update from slot %d to slot %d", latestTrustedSlot, finalizedSlot)
-		return w.updateEthClientSamePeriod(ctx, beaconAPIURL, ethClientID, latestTrustedSlot, finalityUpdate, finalizedSlot)
+		attestedSlot := finalityUpdate.AttestedHeader.Beacon.Slot
+		blockRoot, err := operatorclient.GetBeaconBlockRoot(beaconAPIURL, attestedSlot)
+		if err != nil {
+			return fmt.Errorf("failed to get beacon block root: %w", err)
+		}
+
+		bootstrap, err := operatorclient.GetLightClientBootstrap(beaconAPIURL, blockRoot)
+		if err != nil {
+			return fmt.Errorf("failed to get light client bootstrap: %w", err)
+		}
+
+		syncCommittee := bootstrap.Data.CurrentSyncCommittee
+
+		consensusUpdate := operatorclient.LightClientUpdate{
+			AttestedHeader:          finalityUpdate.AttestedHeader,
+			NextSyncCommittee:       nil,
+			NextSyncCommitteeBranch: nil,
+			FinalizedHeader:         finalityUpdate.FinalizedHeader,
+			FinalityBranch:          finalityUpdate.FinalityBranch,
+			SyncAggregate:           finalityUpdate.SyncAggregate,
+			SignatureSlot:           finalityUpdate.SignatureSlot,
+		}
+
+		header := operatorclient.EthereumHeader{
+			ActiveSyncCommittee: operatorclient.ActiveSyncCommittee{
+				Current: &syncCommittee,
+			},
+			ConsensusUpdate: consensusUpdate,
+			TrustedSlot:     latestTrustedSlot,
+		}
+
+		msg, err := buildMsgUpdateClient(ethClientID, header)
+		if err != nil {
+			return fmt.Errorf("failed to build update client message: %w", err)
+		}
+
+		msgs = append(msgs, msg)
 	}
 
-	return nil
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	return w.txHandler.SendCosmosTxBatch(ctx, msgs)
 }
 
 // parseSlot parses a slot string to uint64

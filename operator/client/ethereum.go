@@ -13,7 +13,6 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 )
 
-// EthereumClientState represents the Ethereum light client state stored on Cosmos
 type EthereumClientState struct {
 	ChainID                      uint64         `json:"chain_id"`
 	EpochsPerSyncCommitteePeriod uint64         `json:"epochs_per_sync_committee_period"`
@@ -32,7 +31,6 @@ type EthereumClientState struct {
 	SyncCommitteeSize            uint64         `json:"sync_committee_size"`
 }
 
-// ForkParameters represents the fork parameters for Ethereum
 type ForkParameters struct {
 	Altair             Fork   `json:"altair"`
 	Bellatrix          Fork   `json:"bellatrix"`
@@ -43,38 +41,32 @@ type ForkParameters struct {
 	GenesisSlot        uint64 `json:"genesis_slot"`
 }
 
-// Fork represents a single fork
 type Fork struct {
 	Epoch   uint64 `json:"epoch"`
 	Version string `json:"version"`
 }
 
-// ComputeSyncCommitteePeriodAtSlot computes the sync committee period for a given slot
 func (cs *EthereumClientState) ComputeSyncCommitteePeriodAtSlot(slot uint64) uint64 {
 	epoch := slot / cs.SlotsPerEpoch
 	return epoch / cs.EpochsPerSyncCommitteePeriod
 }
 
-// SyncCommittee represents the sync committee data
 type SyncCommittee struct {
 	Pubkeys         []string `json:"pubkeys"`
 	AggregatePubkey string   `json:"aggregate_pubkey"`
 }
 
-// SummarizedSyncCommittee represents the summarized sync committee data
 type SummarizedSyncCommittee struct {
 	PubkeysHash     string `json:"pubkeys_hash"`
 	AggregatePubkey string `json:"aggregate_pubkey"`
 }
 
-// LightClientHeader represents a light client header
 type LightClientHeader struct {
 	Beacon          BeaconBlockHeader      `json:"beacon"`
 	Execution       ExecutionPayloadHeader `json:"execution"`
 	ExecutionBranch []string               `json:"execution_branch"`
 }
 
-// BeaconBlockHeader represents a beacon block header
 type BeaconBlockHeader struct {
 	Slot          string `json:"slot"`
 	ProposerIndex string `json:"proposer_index"`
@@ -83,7 +75,6 @@ type BeaconBlockHeader struct {
 	BodyRoot      string `json:"body_root"`
 }
 
-// ExecutionPayloadHeader represents the execution payload header
 type ExecutionPayloadHeader struct {
 	ParentHash       string `json:"parent_hash"`
 	FeeRecipient     string `json:"fee_recipient"`
@@ -104,13 +95,11 @@ type ExecutionPayloadHeader struct {
 	ExcessBlobGas    string `json:"excess_blob_gas"`
 }
 
-// SyncAggregate represents the sync aggregate
 type SyncAggregate struct {
 	SyncCommitteeBits      string `json:"sync_committee_bits"`
 	SyncCommitteeSignature string `json:"sync_committee_signature"`
 }
 
-// LightClientUpdate represents a light client update from the beacon API
 type LightClientUpdate struct {
 	AttestedHeader          LightClientHeader `json:"attested_header"`
 	NextSyncCommittee       *SyncCommittee    `json:"next_sync_committee"`
@@ -121,7 +110,6 @@ type LightClientUpdate struct {
 	SignatureSlot           string            `json:"signature_slot"`
 }
 
-// LightClientFinalityUpdate represents a finality update from the beacon API
 type LightClientFinalityUpdate struct {
 	AttestedHeader  LightClientHeader `json:"attested_header"`
 	FinalizedHeader LightClientHeader `json:"finalized_header"`
@@ -130,31 +118,26 @@ type LightClientFinalityUpdate struct {
 	SignatureSlot   string            `json:"signature_slot"`
 }
 
-// ActiveSyncCommittee represents the active sync committee (either current or next)
 type ActiveSyncCommittee struct {
 	Current *SyncCommittee `json:"Current,omitempty"`
 	Next    *SyncCommittee `json:"Next,omitempty"`
 }
 
-// EthereumHeader represents the header for updating the Ethereum light client
 type EthereumHeader struct {
 	ActiveSyncCommittee ActiveSyncCommittee `json:"active_sync_committee"`
 	ConsensusUpdate     LightClientUpdate   `json:"consensus_update"`
 	TrustedSlot         uint64              `json:"trusted_slot"`
 }
 
-// FinalityUpdateResponse represents the response from the finality update endpoint
 type FinalityUpdateResponse struct {
 	Version string                    `json:"version"`
 	Data    LightClientFinalityUpdate `json:"data"`
 }
 
-// LightClientUpdateResponse represents a single light client update response
 type LightClientUpdateResponse struct {
 	Data LightClientUpdate `json:"data"`
 }
 
-// BootstrapResponse represents the response from the bootstrap endpoint
 type BootstrapResponse struct {
 	Data struct {
 		Header               LightClientHeader `json:"header"`
@@ -162,72 +145,57 @@ type BootstrapResponse struct {
 	} `json:"data"`
 }
 
-// BeaconBlockRootResponse represents the response for beacon block root
 type BeaconBlockRootResponse struct {
 	Data struct {
 		Root string `json:"root"`
 	} `json:"data"`
 }
 
-// GetFinalityUpdate fetches the latest finality update from the beacon API
-func GetFinalityUpdate(beaconAPIURL string) (*LightClientFinalityUpdate, error) {
-	url := fmt.Sprintf("%s/eth/v1/beacon/light_client/finality_update", beaconAPIURL)
+func httpGet[T any](url string) (T, error) {
+	var result T
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return result, err
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch finality update: %w", err)
+		return result, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return result, err
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("finality update request failed with status %d: %s", resp.StatusCode, string(body))
+		return result, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, body)
 	}
 
-	var response FinalityUpdateResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal finality update: %w", err)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return result, err
 	}
 
+	return result, nil
+}
+
+func GetFinalityUpdate(beaconAPIURL string) (*LightClientFinalityUpdate, error) {
+	url := fmt.Sprintf("%s/eth/v1/beacon/light_client/finality_update", beaconAPIURL)
+	response, err := httpGet[FinalityUpdateResponse](url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get finality update: %w", err)
+	}
 	return &response.Data, nil
 }
 
-// GetLightClientUpdates fetches light client updates from the beacon API
 func GetLightClientUpdates(beaconAPIURL string, startPeriod, count uint64) ([]LightClientUpdate, error) {
 	url := fmt.Sprintf("%s/eth/v1/beacon/light_client/updates?start_period=%d&count=%d", beaconAPIURL, startPeriod, count)
-	req, err := http.NewRequest("GET", url, nil)
+	responses, err := httpGet[[]LightClientUpdateResponse](url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch light client updates: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("light client updates request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var responses []LightClientUpdateResponse
-	if err := json.Unmarshal(body, &responses); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal light client updates: %w", err)
+		return nil, fmt.Errorf("failed to get light client updates: %w", err)
 	}
 
 	updates := make([]LightClientUpdate, len(responses))
@@ -237,74 +205,25 @@ func GetLightClientUpdates(beaconAPIURL string, startPeriod, count uint64) ([]Li
 	return updates, nil
 }
 
-// GetBeaconBlockRoot fetches the beacon block root for a given block ID
 func GetBeaconBlockRoot(beaconAPIURL, blockID string) (string, error) {
 	url := fmt.Sprintf("%s/eth/v1/beacon/blocks/%s/root", beaconAPIURL, blockID)
-	req, err := http.NewRequest("GET", url, nil)
+	response, err := httpGet[BeaconBlockRootResponse](url)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("failed to get beacon block root: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch beacon block root: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("beacon block root request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response BeaconBlockRootResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("failed to unmarshal beacon block root: %w", err)
-	}
-
 	return response.Data.Root, nil
 }
 
-// GetLightClientBootstrap fetches the light client bootstrap for a given block root
 func GetLightClientBootstrap(beaconAPIURL, blockRoot string) (*BootstrapResponse, error) {
 	url := fmt.Sprintf("%s/eth/v1/beacon/light_client/bootstrap/%s", beaconAPIURL, blockRoot)
-	req, err := http.NewRequest("GET", url, nil)
+	response, err := httpGet[BootstrapResponse](url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to get light client bootstrap: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch bootstrap: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("bootstrap request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response BootstrapResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal bootstrap: %w", err)
-	}
-
 	return &response, nil
 }
 
-// GetEthereumClientState queries the Ethereum client state from Cosmos via ABCI
-// This is a simplified version that uses direct proto marshaling without heavy interface registry
 func GetEthereumClientState(cosmosClient *rpchttp.HTTP, clientID string) (*EthereumClientState, error) {
-	// Build the query request using direct proto marshaling
 	queryReq := &clienttypes.QueryClientStateRequest{
 		ClientId: clientID,
 	}
@@ -314,32 +233,25 @@ func GetEthereumClientState(cosmosClient *rpchttp.HTTP, clientID string) (*Ether
 		return nil, fmt.Errorf("failed to marshal query request: %w", err)
 	}
 
-	// Query path for IBC client state
-	queryPath := "/ibc.core.client.v1.Query/ClientState"
-
-	// Make ABCI query
-	result, err := cosmosClient.ABCIQuery(context.Background(), queryPath, reqBytes)
+	result, err := cosmosClient.ABCIQuery(context.Background(), "/ibc.core.client.v1.Query/ClientState", reqBytes)
 	if err != nil {
-		return nil, fmt.Errorf("ABCI query failed: %w", err)
+		return nil, fmt.Errorf("failed to query client state: %w", err)
 	}
 
 	if result.Response.Code != 0 {
 		return nil, fmt.Errorf("query failed with code %d: %s", result.Response.Code, result.Response.Log)
 	}
 
-	// Decode the response using direct proto unmarshaling
 	var queryResp clienttypes.QueryClientStateResponse
 	if err := proto.Unmarshal(result.Response.Value, &queryResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query response: %w", err)
 	}
 
-	// Decode the wasm client state directly from the Any value
 	var wasmClientState ibcwasmtypes.ClientState
 	if err := proto.Unmarshal(queryResp.ClientState.Value, &wasmClientState); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal wasm client state: %w", err)
 	}
 
-	// Decode the Ethereum client state from wasm data
 	var ethClientState EthereumClientState
 	if err := json.Unmarshal(wasmClientState.Data, &ethClientState); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal ethereum client state: %w", err)

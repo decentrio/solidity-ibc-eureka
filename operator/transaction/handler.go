@@ -282,6 +282,171 @@ func (h *Handler) SendCosmosTx(svcCtx services.Context, msg any) error {
 	return nil
 }
 
+// SendCosmosTxBatch sends multiple messages in a single Cosmos transaction
+func (h *Handler) SendCosmosTxBatch(svcCtx services.Context, msgs []any) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	// Convert all messages to sdk.Msg
+	var sdkMsgs []sdk.Msg
+	for i, msg := range msgs {
+		protoMsg, ok := msg.(proto.Message)
+		if !ok {
+			return fmt.Errorf("message %d must be a proto.Message", i)
+		}
+		sdkMsg, ok := protoMsg.(sdk.Msg)
+		if !ok {
+			return fmt.Errorf("message %d does not implement sdk.Msg interface", i)
+		}
+		sdkMsgs = append(sdkMsgs, sdkMsg)
+	}
+
+	// Get the private key from environment variable
+	privKeyHex := os.Getenv("COSMOS_PRIVATE_KEY")
+	if privKeyHex == "" {
+		return fmt.Errorf("COSMOS_PRIVATE_KEY environment variable is required in .env file")
+	}
+
+	// Decode the private key
+	privKeyBytes, err := hex.DecodeString(strings.TrimPrefix(privKeyHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to decode private key: %w", err)
+	}
+
+	privKey := secp256k1.PrivKey{Key: privKeyBytes}
+	signerAddr := sdk.AccAddress(privKey.PubKey().Address())
+
+	// Get chain configuration from environment
+	chainID := os.Getenv("COSMOS_CHAIN_ID")
+	if chainID == "" {
+		return fmt.Errorf("COSMOS_CHAIN_ID environment variable is required in .env file")
+	}
+
+	// Get gas and fee configuration - use higher gas for batch transactions
+	gasLimit := uint64(200000) * uint64(len(sdkMsgs)) // Scale gas with number of messages
+	if gasStr := os.Getenv("COSMOS_GAS_LIMIT"); gasStr != "" {
+		var baseGas uint64
+		if _, err := fmt.Sscanf(gasStr, "%d", &baseGas); err != nil {
+			return fmt.Errorf("failed to parse COSMOS_GAS_LIMIT: %w", err)
+		}
+		gasLimit = baseGas * uint64(len(sdkMsgs))
+	}
+
+	feeDenom := os.Getenv("COSMOS_FEE_DENOM")
+	if feeDenom == "" {
+		feeDenom = "stake" // Default fee denom
+	}
+
+	feeAmount := int64(1000) * int64(len(sdkMsgs)) // Scale fee with number of messages
+	if feeStr := os.Getenv("COSMOS_FEE_AMOUNT"); feeStr != "" {
+		var baseFee int64
+		if _, err := fmt.Sscanf(feeStr, "%d", &baseFee); err != nil {
+			return fmt.Errorf("failed to parse COSMOS_FEE_AMOUNT: %w", err)
+		}
+		feeAmount = baseFee * int64(len(sdkMsgs))
+	}
+
+	// Query account info (account number and sequence) from the chain
+	accountNumber, sequence, err := h.queryAccountInfo(svcCtx, signerAddr.String())
+	if err != nil {
+		return fmt.Errorf("failed to query account info: %w", err)
+	}
+
+	// Setup encoding config
+	interfaceRegistry := codectypes.NewInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
+	authtypes.RegisterInterfaces(interfaceRegistry)
+	channeltypesv2.RegisterInterfaces(interfaceRegistry)
+	cdc := codec.NewProtoCodec(interfaceRegistry)
+	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
+
+	// Build the transaction
+	txBuilder := txConfig.NewTxBuilder()
+
+	if err := txBuilder.SetMsgs(sdkMsgs...); err != nil {
+		return fmt.Errorf("failed to set messages: %w", err)
+	}
+
+	txBuilder.SetGasLimit(gasLimit)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(feeDenom, sdkmath.NewInt(feeAmount))))
+
+	// First, set an empty signature to populate signer info for sign bytes generation
+	pubKey := privKey.PubKey()
+	emptySig := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: nil,
+		},
+		Sequence: sequence,
+	}
+	if err := txBuilder.SetSignatures(emptySig); err != nil {
+		return fmt.Errorf("failed to set empty signature: %w", err)
+	}
+
+	// Create signer data
+	signerData := authsigning.SignerData{
+		Address:       signerAddr.String(),
+		ChainID:       chainID,
+		AccountNumber: accountNumber,
+		Sequence:      sequence,
+		PubKey:        pubKey,
+	}
+
+	// Get sign bytes using the adapter function
+	signBytes, err := authsigning.GetSignBytesAdapter(
+		context.Background(),
+		txConfig.SignModeHandler(),
+		sdksigning.SignMode_SIGN_MODE_DIRECT,
+		signerData,
+		txBuilder.GetTx(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get sign bytes: %w", err)
+	}
+
+	// Sign the bytes
+	sigRaw, err := privKey.Sign(signBytes)
+	if err != nil {
+		return fmt.Errorf("failed to sign transaction: %w", err)
+	}
+
+	// Set the actual signature
+	sigV2 := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: sigRaw,
+		},
+		Sequence: sequence,
+	}
+
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return fmt.Errorf("failed to set signatures: %w", err)
+	}
+
+	// Encode the transaction
+	txBytes, err := txConfig.TxEncoder()(txBuilder.GetTx())
+	if err != nil {
+		return fmt.Errorf("failed to encode transaction: %w", err)
+	}
+
+	// Broadcast the transaction
+	result, err := svcCtx.CosmosClient().BroadcastTxSync(context.Background(), txBytes)
+	if err != nil {
+		return fmt.Errorf("failed to broadcast transaction: %w", err)
+	}
+
+	if result.Code != 0 {
+		return fmt.Errorf("transaction failed with code %d: %s", result.Code, result.Log)
+	}
+
+	log.Printf("Batch transaction broadcast successfully. Hash: %s, Messages: %d", result.Hash.String(), len(sdkMsgs))
+
+	return nil
+}
+
 // queryAccountInfo queries the account number and sequence for the given address
 func (h *Handler) queryAccountInfo(svcCtx services.Context, address string) (uint64, uint64, error) {
 	// Build the query request
