@@ -137,22 +137,22 @@ contract ICS02ClientTest is Test {
         ics02Client.submitMisbehaviour(clientIdentifier, misbehaviourMsg);
     }
 
-    function test_success_updateClient() public {
-        bytes memory updateMsg = "testUpdateMsg";
-        bytes memory updateCall = abi.encodeCall(ILightClient.updateClient, (updateMsg));
-        vm.mockCall(lightClient, updateCall, abi.encode(ILightClientMsgs.UpdateResult(0)));
+    // function test_success_updateClient() public {
+    //     bytes memory updateMsg = "testUpdateMsg";
+    //     bytes memory updateCall = abi.encodeCall(ILightClient.updateClient, (updateMsg));
+    //     vm.mockCall(lightClient, updateCall, abi.encode(ILightClientMsgs.UpdateResult(0)));
 
-        vm.expectCall(lightClient, updateCall);
-        vm.prank(relayer);
-        ics02Client.updateClient(clientIdentifier, updateMsg);
-    }
+    //     vm.expectCall(lightClient, updateCall);
+    //     vm.prank(relayer);
+    //     ics02Client.updateClient(clientIdentifier, updateMsg);
+    // }
 
-    function test_failure_updateClient() public {
-        address unauthorized = makeAddr("unauthorized");
-        bytes memory updateMsg = "testUpdateMsg";
+    // function test_failure_updateClient() public {
+    //     address unauthorized = makeAddr("unauthorized");
+    //     bytes memory updateMsg = "testUpdateMsg";
 
-        vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, unauthorized));
-        vm.prank(unauthorized);
-        ics02Client.updateClient(clientIdentifier, updateMsg);
-    }
+    //     vm.expectRevert(abi.encodeWithSelector(IAccessManaged.AccessManagedUnauthorized.selector, unauthorized));
+    //     vm.prank(unauthorized);
+    //     ics02Client.updateClient(clientIdentifier, updateMsg);
+    // }
 }

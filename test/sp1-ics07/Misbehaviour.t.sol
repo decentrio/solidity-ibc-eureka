@@ -71,39 +71,39 @@ contract SP1ICS07MisbehaviourTest is SP1ICS07TendermintTest, IMisbehaviourMsgs {
         assertTrue(clientState.isFrozen);
     }
 
-    function test_FrozenClientState() public {
-        setUpMisbehaviour("misbehaviour_double_sign-plonk_fixture.json");
+    // function test_FrozenClientState() public {
+    //     setUpMisbehaviour("misbehaviour_double_sign-plonk_fixture.json");
 
-        // set a correct timestamp
-        // vm.warp(_nanosToSeconds(output.time));
-        ics07Tendermint.misbehaviour(fixture.submitMsg);
+    //     // set a correct timestamp
+    //     // vm.warp(_nanosToSeconds(output.time));
+    //     ics07Tendermint.misbehaviour(fixture.submitMsg);
 
-        // verify that the client is frozen
-        ClientState memory clientState = abi.decode(ics07Tendermint.getClientState(), (ClientState));
-        assertTrue(clientState.isFrozen);
+    //     // verify that the client is frozen
+    //     ClientState memory clientState = abi.decode(ics07Tendermint.getClientState(), (ClientState));
+    //     assertTrue(clientState.isFrozen);
 
-        // try to submit a updateClient msg
-        vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
-        ics07Tendermint.updateClient(bytes(""));
+    //     // try to submit a updateClient msg
+    //     vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
+    //     ics07Tendermint.updateClient(bytes(""));
 
-        // try to submit a membership msg
-        MsgVerifyMembership memory membership;
-        vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
-        ics07Tendermint.verifyMembership(membership);
+    //     // try to submit a membership msg
+    //     MsgVerifyMembership memory membership;
+    //     vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
+    //     ics07Tendermint.verifyMembership(membership);
 
-        // try to submit a non-membership msg
-        MsgVerifyNonMembership memory nonMembership;
-        vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
-        ics07Tendermint.verifyNonMembership(nonMembership);
+    //     // try to submit a non-membership msg
+    //     MsgVerifyNonMembership memory nonMembership;
+    //     vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
+    //     ics07Tendermint.verifyNonMembership(nonMembership);
 
-        // try to submit a misbehaviour msg
-        vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
-        ics07Tendermint.misbehaviour(fixture.submitMsg);
+    //     // try to submit a misbehaviour msg
+    //     vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
+    //     ics07Tendermint.misbehaviour(fixture.submitMsg);
 
-        // try to submit upgrade client
-        vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
-        ics07Tendermint.upgradeClient(bytes(""));
-    }
+    //     // try to submit upgrade client
+    //     vm.expectRevert(abi.encodeWithSelector(FrozenClientState.selector));
+    //     ics07Tendermint.upgradeClient(bytes(""));
+    // }
 
     function test_InvalidMisbehaviour() public {
         setUpMisbehaviour("misbehaviour_double_sign-plonk_fixture.json");

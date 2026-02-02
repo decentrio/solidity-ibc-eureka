@@ -22,8 +22,8 @@ contract DummyLightClient is ILightClient, ILightClientMsgs {
         membershipShouldFail = membershipShouldFail_;
     }
 
-    function updateClient(bytes calldata updateMsg) external returns (UpdateResult) {
-        latestUpdateMsg = updateMsg;
+    function updateClient(IUpdateClientMsgs.MsgUpdateClient calldata) external returns (UpdateResult) {
+        // latestUpdateMsg = abi.encode(msg_);
         return updateResult;
     }
 

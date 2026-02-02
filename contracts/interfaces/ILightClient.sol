@@ -9,9 +9,9 @@ import { ILightClientMsgs } from "../msgs/ILightClientMsgs.sol";
 /// @notice Interface for all IBC Eureka light clients to implement.
 interface ILightClient {
     /// @notice Updating the client and consensus state
-    /// @param updateClientMsg The update client message.
+    /// @param msg_ The update client message.
     /// @return The result of the update operation
-    function updateClient(bytes calldata updateClientMsg) external returns (ILightClientMsgs.UpdateResult);
+    function updateClient(IUpdateClientMsgs.MsgUpdateClient calldata msg_) external returns (ILightClientMsgs.UpdateResult);
 
     /// @notice Querying the membership of a key-value pair
     /// @dev Notice that this message is not view, as it may update the client state for caching purposes.

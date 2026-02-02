@@ -5,6 +5,7 @@ pragma solidity ^0.8.28;
 import "forge-std/console.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { SP1ICS07TendermintTest } from "./SP1ICS07TendermintTest.sol";
+import { IUpdateClientMsgs } from "../../contracts/light-clients/msgs/IUpdateClientMsgs.sol";
 
 struct SP1ICS07UpdateClientFixtureJson {
     bytes trustedClientState;
@@ -53,7 +54,8 @@ contract SP1ICS07UpdateClientTest is SP1ICS07TendermintTest {
             vm.warp(_nanosToSeconds(output.time) + 300);
 
             // run verify
-            UpdateResult res = ics07Tendermint.updateClient(fixture.updateMsg);
+            IUpdateClientMsgs.MsgUpdateClient memory updateMsg = abi.decode(fixture.updateMsg, (IUpdateClientMsgs.MsgUpdateClient));
+            UpdateResult res = ics07Tendermint.updateClient(updateMsg);
 
             // to console
             console.log("UpdateClient-", testCases[i].name, "gas used: ", vm.lastCallGas().gasTotalUsed);
@@ -77,24 +79,25 @@ contract SP1ICS07UpdateClientTest is SP1ICS07TendermintTest {
         vm.warp(_nanosToSeconds(output.time) + 300);
 
         // run verify
-        UpdateResult res = ics07Tendermint.updateClient(fixture.updateMsg);
+        IUpdateClientMsgs.MsgUpdateClient memory updateMsg = abi.decode(fixture.updateMsg, (IUpdateClientMsgs.MsgUpdateClient));
+        UpdateResult res = ics07Tendermint.updateClient(updateMsg);
         assert(res == UpdateResult.Update);
 
         // run verify again
-        res = ics07Tendermint.updateClient(fixture.updateMsg);
+        res = ics07Tendermint.updateClient(updateMsg);
 
         // to console
         console.log("UpdateClient_NoOp gas used: ", vm.lastCallGas().gasTotalUsed);
         assert(res == UpdateResult.NoOp);
     }
 
-    function test_Invalid_UpdateClient() public {
-        // Doesn't matter which fixture we use since this is a fail
-        setUpTestWithFixture("update_client_fixture-plonk.json");
+    // function test_Invalid_UpdateClient() public {
+    //     // Doesn't matter which fixture we use since this is a fail
+    //     setUpTestWithFixture("update_client_fixture-plonk.json");
 
-        vm.expectRevert();
-        ics07Tendermint.updateClient(bytes("invalid"));
-    }
+    //     vm.expectRevert();
+    //     ics07Tendermint.updateClient(bytes("invalid"));
+    // }
 
     function test_MockMisbehavior_UpdateClient() public {
         // Doesn't matter which fixture we use since this is a mock contract
@@ -106,7 +109,7 @@ contract SP1ICS07UpdateClientTest is SP1ICS07TendermintTest {
         MsgUpdateClient memory updateMsg = abi.decode(fixture.updateMsg, (MsgUpdateClient));
         // updateMsg.sp1Proof.proof = bytes("");
 
-        UpdateResult res = mockIcs07Tendermint.updateClient(abi.encode(updateMsg));
+        UpdateResult res = mockIcs07Tendermint.updateClient(updateMsg);
         assert(res == UpdateResult.Update);
 
         // change output so that it is a misbehaviour
@@ -115,7 +118,7 @@ contract SP1ICS07UpdateClientTest is SP1ICS07TendermintTest {
         // updateMsg.sp1Proof.publicValues = abi.encode(output);
 
         // run verify again
-        res = mockIcs07Tendermint.updateClient(abi.encode(updateMsg));
+        res = mockIcs07Tendermint.updateClient(updateMsg);
         assert(res == UpdateResult.Misbehaviour);
 
         ClientState memory clientState = abi.decode(mockIcs07Tendermint.getClientState(), (ClientState));

@@ -134,7 +134,8 @@ abstract contract ICS02ClientUpgradeable is IICS02Client, IICS02ClientErrors, Ac
         restricted
         returns (ILightClientMsgs.UpdateResult)
     {
-        ILightClientMsgs.UpdateResult result = getClient(clientId).updateClient(updateMsg);
+        IUpdateClientMsgs.MsgUpdateClient memory msg_ = abi.decode(updateMsg, (IUpdateClientMsgs.MsgUpdateClient));
+        ILightClientMsgs.UpdateResult result = getClient(clientId).updateClient(msg_);
         emit ICS02ClientUpdated(clientId, result);
         return result;
     }

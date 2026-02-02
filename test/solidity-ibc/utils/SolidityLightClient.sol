@@ -17,7 +17,7 @@ contract SolidityLightClient is ILightClient {
         _COUNTERPARTY_ICS26 = counterpartyIcs26;
     }
 
-    function updateClient(bytes calldata) external pure returns (ILightClientMsgs.UpdateResult) {
+    function updateClient(IUpdateClientMsgs.MsgUpdateClient calldata msg_) external pure returns (ILightClientMsgs.UpdateResult) {
         revert("not implemented");
     }
 
