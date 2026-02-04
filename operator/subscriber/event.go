@@ -2,12 +2,13 @@ package subscriber
 
 import (
 	"context"
+	"encoding/hex"
 	"operator/services"
 
-	"github.com/cosmos/ibc-go/v10/modules/apps/transfer/internal/events"
+	channeltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 )
 
-const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.core.channel.v1.MsgSendPacket'"
+const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.core.channel.v2.MsgSendPacket'"
 
 type Subscriber struct {
 }
@@ -20,10 +21,14 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 
 	for {
 		select {
-		case ev := <-sub:
+		case e := <-sub:
 			// handle event
-			ev.Events[]
+			sendPacketEvent := e.Events[channeltypes.EventTypeSendPacket]
+			if sendPacketEvent == nil {
+				continue
+			}
+			packetHex := sendPacketEvent[channeltypes.AttributeKeyEncodedPacketHex]
+			packet, err := hex.DecodeString(packetHex)
 		}
 	}
 }
-

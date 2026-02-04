@@ -1,7 +1,7 @@
 
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.25;
 
 import { IGroth16Verifier } from "../interfaces/IVerifier.sol";
 

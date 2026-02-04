@@ -34,47 +34,47 @@ contract UpdateClient is IUpdateClient {
     );
 
     function updateClient(
-        IUpdateClientMsgs.MsgUpdateClient calldata msg
+        IUpdateClientMsgs.MsgUpdateClient calldata msg_
     ) view external returns (IUpdateClientMsgs.UpdateClientOutput memory) {
-        IICS07TendermintMsgs.ChainId memory chainId = getChainId(msg.clientState.chainId);
+        IICS07TendermintMsgs.ChainId memory chainId = getChainId(msg_.clientState.chainId);
         IICS07TendermintMsgs.Options memory options = IICS07TendermintMsgs.Options({
-            trustThreshold: msg.clientState.trustLevel,
-            trustingPeriod: msg.clientState.trustingPeriod,
+            trustThreshold: msg_.clientState.trustLevel,
+            trustingPeriod: msg_.clientState.trustingPeriod,
             clockDrift: 15
         });
 
         IICS07TendermintMsgs.ClientConsensusStatePath memory path = IICS07TendermintMsgs.ClientConsensusStatePath({
             clientId: clientId,
-            revisionNumber: msg.proposedHeader.trustedHeight.revisionNumber,
-            revisionHeight: msg.proposedHeader.trustedHeight.revisionHeight
+            revisionNumber: msg_.proposedHeader.trustedHeight.revisionNumber,
+            revisionHeight: msg_.proposedHeader.trustedHeight.revisionHeight
         });
 
         verifyHeader(
-            msg.proposedHeader,
+            msg_.proposedHeader,
             clientId,
             chainId,
             options,
-            msg.time,
+            msg_.time,
             path,
-            msg.trustedConsensusState
+            msg_.trustedConsensusState
         );
 
         IICS07TendermintMsgs.ConsensusState memory newConsensusState = IICS07TendermintMsgs.ConsensusState({
-            timestamp: msg.proposedHeader.signedHeader.header.time,
-            root: msg.proposedHeader.signedHeader.header.appHash,
-            nextValidatorsHash: msg.proposedHeader.signedHeader.header.nextValidatorsHash
+            timestamp: msg_.proposedHeader.signedHeader.header.time,
+            root: msg_.proposedHeader.signedHeader.header.appHash,
+            nextValidatorsHash: msg_.proposedHeader.signedHeader.header.nextValidatorsHash
         });
 
         IICS02ClientMsgs.Height memory newHeight = IICS02ClientMsgs.Height({
             revisionNumber: chainId.revisionNumber,
-            revisionHeight: msg.proposedHeader.signedHeader.header.height
+            revisionHeight: msg_.proposedHeader.signedHeader.header.height
         });
         IUpdateClientMsgs.UpdateClientOutput memory output = IUpdateClientMsgs.UpdateClientOutput({
-            clientState: msg.clientState,
-            trustedConsensusState: msg.trustedConsensusState,
+            clientState: msg_.clientState,
+            trustedConsensusState: msg_.trustedConsensusState,
             newConsensusState: newConsensusState,
-            time: msg.time,
-            trustedHeight: msg.proposedHeader.trustedHeight,
+            time: msg_.time,
+            trustedHeight: msg_.proposedHeader.trustedHeight,
             newHeight: newHeight
         });
         return output;
@@ -82,11 +82,11 @@ contract UpdateClient is IUpdateClient {
 
     function verifyHeader(
         IICS07TendermintMsgs.Header memory proposedHeader,
-        string memory clientId,
+        string memory clientId_,
         IICS07TendermintMsgs.ChainId memory chainId,
         IICS07TendermintMsgs.Options memory options,
         uint128 time,
-        IICS07TendermintMsgs.ClientConsensusStatePath memory path,
+        IICS07TendermintMsgs.ClientConsensusStatePath memory path_,
         IICS07TendermintMsgs.ConsensusState memory trustedConsensusState
     ) internal pure {
         // Checks that the header fields are valid.
