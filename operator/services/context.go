@@ -22,6 +22,10 @@ type Context struct {
 
 	cosmosClient *rpchttp.HTTP
 	ethClient    *ethclient.Client
+	beaconAPIURL string
+
+	// Ethereum light client configuration
+	ethClientID string
 }
 
 func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
@@ -29,6 +33,26 @@ func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
 		Logger:       log.Default(),
 		cosmosClient: cosmosClient,
 		ethClient:    ethClient,
+		beaconAPIURL: "",
+		ethClientID:  "",
+		latestEthTimestamp: Timestamp{
+			latestUpdateTime:   time.Now(),
+			latestUpdateHeight: 0,
+		},
+		latestCosmosTimestamp: Timestamp{
+			latestUpdateTime:   time.Now(),
+			latestUpdateHeight: 0,
+		},
+	}
+}
+
+func NewCtxWithBeacon(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client, beaconAPIURL string, ethClientID string) Context {
+	return Context{
+		Logger:       log.Default(),
+		cosmosClient: cosmosClient,
+		ethClient:    ethClient,
+		beaconAPIURL: beaconAPIURL,
+		ethClientID:  ethClientID,
 		latestEthTimestamp: Timestamp{
 			latestUpdateTime:   time.Now(),
 			latestUpdateHeight: 0,
@@ -46,6 +70,14 @@ func (c *Context) EthClient() *ethclient.Client {
 
 func (c *Context) CosmosClient() *rpchttp.HTTP {
 	return c.cosmosClient
+}
+
+func (c *Context) BeaconAPIURL() string {
+	return c.beaconAPIURL
+}
+
+func (c *Context) EthClientID() string {
+	return c.ethClientID
 }
 
 func (c *Context) StopClient() {
