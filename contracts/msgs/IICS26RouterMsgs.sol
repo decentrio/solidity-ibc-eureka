@@ -48,12 +48,10 @@ interface IICS26RouterMsgs {
 
     /// @notice Message for receiving packets, submitted by relayer
     /// @param packet The packet to be received
-    /// @param proofCommitment The proof of the packet commitment
-    /// @param proofHeight The proof height
+    /// @param membershipMsg The membership msg of the packet
     struct MsgRecvPacket {
         Packet packet;
-        bytes proofCommitment;
-        IICS02ClientMsgs.Height proofHeight;
+        bytes membershipMsg;
     }
 
     /// @notice Message for acknowledging packets, submitted by relayer
