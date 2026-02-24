@@ -28,9 +28,9 @@ async fn main() -> anyhow::Result<()> {
             // Build the relayer server.
             let mut relayer_builder = RelayerBuilder::default();
             relayer_builder.add_module(CosmosToEthRelayerModule);
-            relayer_builder.add_module(CosmosToCosmosRelayerModule);
+            // relayer_builder.add_module(CosmosToCosmosRelayerModule);
             relayer_builder.add_module(EthToCosmosRelayerModule);
-            relayer_builder.add_module(EthToCosmosCompatRelayerModule);
+            // relayer_builder.add_module(EthToCosmosCompatRelayerModule);
 
             // Start the metrics server.
             tokio::spawn(async {
