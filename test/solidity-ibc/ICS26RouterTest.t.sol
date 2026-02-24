@@ -176,8 +176,7 @@ contract ICS26RouterTest is Test {
 
         IICS26RouterMsgs.MsgRecvPacket memory msgRecvPacket = IICS26RouterMsgs.MsgRecvPacket({
             packet: packet,
-            proofCommitment: "0x", // doesn't matter
-            proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 0 }) // doesn't matter
+            membershipMsg: "0x" // doesn't matter
          });
 
         vm.expectRevert(errorMsg);
@@ -215,8 +214,7 @@ contract ICS26RouterTest is Test {
 
         IICS26RouterMsgs.MsgRecvPacket memory msgRecvPacket = IICS26RouterMsgs.MsgRecvPacket({
             packet: packet,
-            proofCommitment: "0x", // doesn't matter
-            proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 0 }) // doesn't matter
+            membershipMsg: "0x" // doesn't matter
          });
 
         bytes[] memory expAcks = new bytes[](1);
@@ -260,8 +258,7 @@ contract ICS26RouterTest is Test {
 
         IICS26RouterMsgs.MsgRecvPacket memory msgRecvPacket = IICS26RouterMsgs.MsgRecvPacket({
             packet: packet,
-            proofCommitment: "0x", // doesn't matter
-            proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 0, revisionHeight: 0 }) // doesn't matter
+            membershipMsg: "0x" // doesn't matter
          });
 
         vm.expectRevert(abi.encodeWithSelector(IICS26RouterErrors.IBCFailedCallback.selector));
