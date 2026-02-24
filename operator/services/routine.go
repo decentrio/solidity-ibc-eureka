@@ -18,12 +18,6 @@ type Worker struct {
 	txHandler TransactionHandler
 }
 
-func NewWorkerWithConfig(txHandler TransactionHandler) *Worker {
-	return &Worker{
-		txHandler,
-	}
-}
-
 func NewWorker(txHandler TransactionHandler) *Worker {
 	return &Worker{
 		txHandler,

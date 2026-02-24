@@ -3,18 +3,30 @@ package subscriber
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"os"
 
 	contractICS26Router "operator/bindings/ICS26Router"
 	"operator/services"
 
+	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/gogo/protobuf/proto"
 )
 
-const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.core.channel.v2.MsgSendPacket'"
+const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgTransfer'"
+const EVENT_SEND_PACKET_FIELD = "send_packet.encoded_packet_hex"
+const EVENT_TX_HASH_FIELD = "tx.hash"
 
 type Subscriber struct {
+	txHandler services.TransactionHandler
+}
+
+func NewSubscriber(txHandler services.TransactionHandler) *Subscriber {
+	return &Subscriber{
+		txHandler,
+	}
 }
 
 func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
@@ -27,12 +39,71 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 		select {
 		case e := <-sub:
 			// handle event
-			sendPacketEvent := e.Events[channeltypes.EventTypeSendPacket]
+			sendPacketEvent := e.Events[EVENT_SEND_PACKET_FIELD]
 			if sendPacketEvent == nil {
 				continue
 			}
-			packetHex := sendPacketEvent[channeltypes.AttributeKeyEncodedPacketHex]
-			packet, err := hex.DecodeString(packetHex)
+
+			txHashStr := e.Events[EVENT_TX_HASH_FIELD]
+			if txHashStr == nil {
+				ctx.Logger.Println(fmt.Errorf("Invalid tx hash"))
+				continue
+			}
+			txHash, err := hex.DecodeString(txHashStr[0])
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
+				continue
+			}
+
+			packetEncodedStr := sendPacketEvent[0]
+			packetBytes, err := hex.DecodeString(packetEncodedStr)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to decode packet hex: %s", err.Error()))
+				continue
+			}
+
+			var packet channeltypesv2.Packet
+			err = proto.Unmarshal(packetBytes, &packet)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to unmarshal packet: %s", err.Error()))
+				continue
+			}
+
+			resp, err := ctx.CosmosClient().Tx(context.Background(), txHash, true)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to fetch tx from tx hash: %s", err.Error()))
+				continue
+			}
+			resp.Proof
+
+			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Payloads))
+			for _, p := range packet.Payloads {
+				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
+					SourcePort: p.SourcePort,
+					DestPort:   p.DestinationPort,
+					Version:    p.Version,
+					Encoding:   p.Encoding,
+					Value:      p.Value,
+				})
+			}
+
+			msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
+				Packet: contractICS26Router.IICS26RouterMsgsPacket{
+					Sequence:         packet.Sequence,
+					SourceClient:     packet.SourceClient,
+					DestClient:       packet.DestinationClient,
+					TimeoutTimestamp: packet.TimeoutTimestamp,
+					Payloads:         payloads,
+				},
+				ProofCommitment: []byte{},
+			}
+
+			// try send recv packet msg to ethereum
+			s.txHandler.SendTx(ctx, msgRecvPacket)
 		}
 	}
 }
