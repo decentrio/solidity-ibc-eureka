@@ -158,10 +158,8 @@ contract ICS26Router is
             ICS24Host.packetCommitmentPathCalldata(msg_.packet.sourceClient, msg_.packet.sequence);
         bytes32 commitmentBz = ICS24Host.packetCommitmentBytes32(msg_.packet);
 
-        // ILightClientMsgs.MsgVerifyMembership memory membershipMsg = ILightClientMsgs.MsgVerifyMembership({
-        //     height: msg_.proofHeight,
-        // });
-        // getClient(msg_.packet.destClient).verifyMembership(membershipMsg);
+        ILightClientMsgs.MsgVerifyMembership memory membershipMsg = abi.decode(msg_.membershipMsg, (ILightClientMsgs.MsgVerifyMembership));
+        getClient(msg_.packet.destClient).verifyMembership(membershipMsg);
 
         // recvPacket will no-op if the packet receipt already exists
         // This no-op check must happen after the membership verification for proofs to be cached

@@ -156,16 +156,14 @@ contract IntegrationTest is Test, DeployPermit2, PermitSignature, DeployAccessMa
             IICS26RouterAccessControlled.recvPacket,
             IICS26RouterMsgs.MsgRecvPacket({
                 packet: recvPacket,
-                proofCommitment: bytes("doesntmatter"), // dummy client will accept
-                proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 1, revisionHeight: 42 }) // will accept
+                membershipMsg: bytes("doesntmatter") // dummy client will accept
              })
         );
         multicallData[1] = abi.encodeCall(
             IICS26RouterAccessControlled.recvPacket,
             IICS26RouterMsgs.MsgRecvPacket({
                 packet: recvPacket2,
-                proofCommitment: bytes("doesntmatter"), // dummy client will accept
-                proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 1, revisionHeight: 42 }) // will accept
+                membershipMsg: bytes("doesntmatter") // dummy client will accept
              })
         );
 
@@ -219,16 +217,14 @@ contract IntegrationTest is Test, DeployPermit2, PermitSignature, DeployAccessMa
             IICS26RouterAccessControlled.recvPacket,
             IICS26RouterMsgs.MsgRecvPacket({
                 packet: receivePacket,
-                proofCommitment: bytes("doesntmatter"), // dummy client will accept
-                proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 1, revisionHeight: 42 }) // will accept
+                membershipMsg: bytes("doesntmatter") // dummy client will accept
              })
         );
         multicallData[1] = abi.encodeCall(
             IICS26RouterAccessControlled.recvPacket,
             IICS26RouterMsgs.MsgRecvPacket({
-                packet: invalidPacket,
-                proofCommitment: bytes("doesntmatter"), // dummy client will accept
-                proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 1, revisionHeight: 42 }) // will accept
+                packet: receivePacket,
+                membershipMsg: bytes("doesntmatter") // dummy client will accept
              })
         );
 
@@ -538,8 +534,7 @@ contract IntegrationTest is Test, DeployPermit2, PermitSignature, DeployAccessMa
         ics26Router.recvPacket(
             IICS26RouterMsgs.MsgRecvPacket({
                 packet: receivePacket,
-                proofCommitment: bytes("doesntmatter"), // dummy client will accept
-                proofHeight: IICS02ClientMsgs.Height({ revisionNumber: 1, revisionHeight: 42 }) // will accept
+                membershipMsg: bytes("doesntmatter") // dummy client will accept
              })
         );
 
