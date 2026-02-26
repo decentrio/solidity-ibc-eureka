@@ -10,8 +10,8 @@ import (
 )
 
 type Timestamp struct {
-	latestUpdateTime   time.Time
-	latestUpdateHeight uint64
+	LatestUpdateTime   time.Time
+	LatestUpdateHeight uint64
 }
 
 type Context struct {
@@ -36,12 +36,12 @@ func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
 		beaconAPIURL: "",
 		ethClientID:  "",
 		latestEthTimestamp: Timestamp{
-			latestUpdateTime:   time.Now(),
-			latestUpdateHeight: 0,
+			LatestUpdateTime:   time.Now(),
+			LatestUpdateHeight: 0,
 		},
 		latestCosmosTimestamp: Timestamp{
-			latestUpdateTime:   time.Now(),
-			latestUpdateHeight: 0,
+			LatestUpdateTime:   time.Now(),
+			LatestUpdateHeight: 0,
 		},
 	}
 }
@@ -54,12 +54,12 @@ func NewCtxWithBeacon(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client, b
 		beaconAPIURL: beaconAPIURL,
 		ethClientID:  ethClientID,
 		latestEthTimestamp: Timestamp{
-			latestUpdateTime:   time.Now(),
-			latestUpdateHeight: 0,
+			LatestUpdateTime:   time.Now(),
+			LatestUpdateHeight: 0,
 		},
 		latestCosmosTimestamp: Timestamp{
-			latestUpdateTime:   time.Now(),
-			latestUpdateHeight: 0,
+			LatestUpdateTime:   time.Now(),
+			LatestUpdateHeight: 0,
 		},
 	}
 }
@@ -86,4 +86,12 @@ func (c *Context) StopClient() {
 		panic(fmt.Errorf("failed to terminate cosmos client: %v", err))
 	}
 	c.ethClient.Close()
+}
+
+func (c *Context) LatestCosmosTimestamp() Timestamp {
+	return c.latestCosmosTimestamp
+}
+
+func (c *Context) LatestEthTimestamp() Timestamp {
+	return c.latestEthTimestamp
 }
