@@ -12,7 +12,7 @@ import (
 
 	ibctm "github.com/cosmos/ibc-go/v10/modules/light-clients/07-tendermint"
 
-	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum"
+	"github.com/cosmos/interchaintest/v10/chain/ethereum"
 
 	"github.com/cosmos/solidity-ibc-eureka/packages/go-abigen/ics26router"
 )
@@ -44,6 +44,8 @@ const (
 	EnvKeyGenerateSolidityFixtures = "GENERATE_SOLIDITY_FIXTURES"
 	// EnvKeyGenerateSolidityFixtures Generate fixtures for the solidity tests if set to true.
 	EnvKeyGenerateWasmFixtures = "GENERATE_WASM_FIXTURES"
+	// EnvKeyGenerateTendermintLightClientFixtures Generate fixtures for the tendermint light client tests if set to true.
+	EnvKeyGenerateTendermintLightClientFixtures = "GENERATE_TENDERMINT_LIGHT_CLIENT_FIXTURES"
 	// The log level for the Rust logger.
 	EnvKeyRustLog = "RUST_LOG"
 
@@ -101,6 +103,8 @@ const (
 	RelayerConfigFilePath = "programs/relayer/config.json"
 	// E2EDeployScriptPath is the path to the E2E deploy script.
 	E2EDeployScriptPath = "scripts/E2ETestDeploy.s.sol:E2ETestDeploy"
+	// TendermintLightClientFixturesDir is the directory where the Tendermint light client fixtures are stored.
+	TendermintLightClientFixturesDir = "packages/tendermint-light-client/fixtures/"
 
 	// IbcCommitmentSlotHex is the storage slot in the IBC solidity contract for the IBC commitments.
 	IbcCommitmentSlotHex = ics26router.IbcStoreStorageSlot
@@ -135,7 +139,7 @@ var (
 	VotingPeriod = time.Second * 30
 
 	// StartingEthBalance is the amount of ETH to give to each user at the start of the test.
-	StartingEthBalance = math.NewInt(2 * ethereum.ETHER)
+	StartingEthBalance = math.NewInt(2 * ethereum.ETHER.Int64())
 
 	// DefaultTrustLevel is the trust level used by the SP1ICS07Tendermint contract.
 	DefaultTrustLevel = ibctm.Fraction{Numerator: 1, Denominator: 3}.ToTendermint()

@@ -87,6 +87,8 @@ contract ICS26Router is
     /// @inheritdoc IICS26RouterAccessControlled
     function addIBCApp(string calldata portId, address app) external nonReentrant restricted {
         require(bytes(portId).length != 0, IBCInvalidPortIdentifier(portId));
+        // NOTE: We do not allow port-ids to be addresses, as this would conflict with the permissionless port-ids
+        // slither-disable-next-line unused-return
         (bool isAddress,) = Strings.tryParseAddress(portId);
         require(!isAddress, IBCInvalidPortIdentifier(portId));
         require(IBCIdentifiers.validateCustomIBCIdentifier(bytes(portId)), IBCInvalidPortIdentifier(portId));
@@ -115,6 +117,7 @@ contract ICS26Router is
             msg_.timeoutTimestamp > block.timestamp, IBCInvalidTimeoutTimestamp(msg_.timeoutTimestamp, block.timestamp)
         );
         require(
+            // solhint-disable-next-line gas-strict-inequalities
             msg_.timeoutTimestamp - block.timestamp <= MAX_TIMEOUT_DURATION,
             IBCInvalidTimeoutDuration(MAX_TIMEOUT_DURATION, msg_.timeoutTimestamp - block.timestamp)
         );
@@ -138,6 +141,8 @@ contract ICS26Router is
     }
 
     /// @inheritdoc IICS26RouterAccessControlled
+    // NOTE: Reentrancy disabled for this function via the `nonReentrant` modifier.
+    // slither-disable-next-line reentrancy-no-eth
     function recvPacket(IICS26RouterMsgs.MsgRecvPacket calldata msg_) external nonReentrant restricted {
         // TODO: Support multi-payload packets (#93)
         require(msg_.packet.payloads.length == 1, IBCMultiPayloadPacketNotSupported());
@@ -158,7 +163,18 @@ contract ICS26Router is
             ICS24Host.packetCommitmentPathCalldata(msg_.packet.sourceClient, msg_.packet.sequence);
         bytes32 commitmentBz = ICS24Host.packetCommitmentBytes32(msg_.packet);
 
+<<<<<<< HEAD
         ILightClientMsgs.MsgVerifyMembership memory membershipMsg = abi.decode(msg_.membershipMsg, (ILightClientMsgs.MsgVerifyMembership));
+=======
+        ILightClientMsgs.MsgVerifyMembership memory membershipMsg = ILightClientMsgs.MsgVerifyMembership({
+            proof: msg_.proofCommitment,
+            proofHeight: msg_.proofHeight,
+            path: ICS24Host.prefixedPath(cInfo.merklePrefix, commitmentPath),
+            value: abi.encodePacked(commitmentBz)
+        });
+        // NOTE: The verification timestamp is not used here in the IBC Eureka Specifications
+        // slither-disable-next-line unused-return
+>>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
         getClient(msg_.packet.destClient).verifyMembership(membershipMsg);
 
         // recvPacket will no-op if the packet receipt already exists
@@ -193,6 +209,8 @@ contract ICS26Router is
     }
 
     /// @inheritdoc IICS26RouterAccessControlled
+    // NOTE: Reentrancy disabled for this function via the `nonReentrant` modifier.
+    // slither-disable-next-line reentrancy-no-eth
     function ackPacket(IICS26RouterMsgs.MsgAckPacket calldata msg_) external nonReentrant restricted {
         // TODO: Support multi-payload packets #93
         require(msg_.packet.payloads.length == 1, IBCMultiPayloadPacketNotSupported());
@@ -211,6 +229,7 @@ contract ICS26Router is
         bytes32 commitmentBz = ICS24Host.packetAcknowledgementCommitmentBytes32(acks);
 
         // verify the packet acknowledgement
+<<<<<<< HEAD
         // ILightClientMsgs.MsgVerifyMembership memory membershipMsg = ILightClientMsgs.MsgVerifyMembership({
         //     proof: msg_.proofAcked,
         //     proofHeight: msg_.proofHeight,
@@ -218,6 +237,17 @@ contract ICS26Router is
         //     value: abi.encodePacked(commitmentBz)
         // });
         // getClient(msg_.packet.sourceClient).verifyMembership(membershipMsg);
+=======
+        ILightClientMsgs.MsgVerifyMembership memory membershipMsg = ILightClientMsgs.MsgVerifyMembership({
+            proof: msg_.proofAcked,
+            proofHeight: msg_.proofHeight,
+            path: ICS24Host.prefixedPath(cInfo.merklePrefix, commitmentPath),
+            value: abi.encodePacked(commitmentBz)
+        });
+        // NOTE: The verification timestamp is not used here in the IBC Eureka Specifications
+        // slither-disable-next-line unused-return
+        getClient(msg_.packet.sourceClient).verifyMembership(membershipMsg);
+>>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
 
         // ackPacket will no-op if the packet commitment does not exist
         // This no-op check must happen after the membership verification for proofs to be cached
@@ -255,6 +285,7 @@ contract ICS26Router is
 
         bytes memory receiptPath =
             ICS24Host.packetReceiptCommitmentPathCalldata(msg_.packet.destClient, msg_.packet.sequence);
+<<<<<<< HEAD
         // ILightClientMsgs.MsgVerifyNonMembership memory nonMembershipMsg = ILightClientMsgs.MsgVerifyNonMembership({
         //     proof: msg_.proofTimeout,
         //     proofHeight: msg_.proofHeight,
@@ -265,6 +296,19 @@ contract ICS26Router is
         //     counterpartyTimestamp >= msg_.packet.timeoutTimestamp,
         //     IBCInvalidTimeoutTimestamp(msg_.packet.timeoutTimestamp, counterpartyTimestamp)
         // );
+=======
+        ILightClientMsgs.MsgVerifyNonMembership memory nonMembershipMsg = ILightClientMsgs.MsgVerifyNonMembership({
+            proof: msg_.proofTimeout,
+            proofHeight: msg_.proofHeight,
+            path: ICS24Host.prefixedPath(cInfo.merklePrefix, receiptPath)
+        });
+        uint256 counterpartyTimestamp = getClient(msg_.packet.sourceClient).verifyNonMembership(nonMembershipMsg);
+        require(
+            // solhint-disable-next-line gas-strict-inequalities
+            counterpartyTimestamp >= msg_.packet.timeoutTimestamp,
+            IBCInvalidTimeoutTimestamp(msg_.packet.timeoutTimestamp, counterpartyTimestamp)
+        );
+>>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
 
         // timeoutPacket will no-op if the packet commitment does not exist
         // This no-op check must happen after the membership verification for proofs to be cached

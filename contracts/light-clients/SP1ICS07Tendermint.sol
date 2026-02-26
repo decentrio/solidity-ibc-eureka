@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+// solhint-disable gas-strict-inequalities
+
 import { IICS07TendermintMsgs } from "./msgs/IICS07TendermintMsgs.sol";
 import { IUpdateClientMsgs } from "./msgs/IUpdateClientMsgs.sol";
 import { IMembershipMsgs } from "./msgs/IMembershipMsgs.sol";
@@ -259,8 +261,40 @@ contract SP1ICS07Tendermint is
         );
 
         IMembershipMsgs.MembershipOutput memory output =
+<<<<<<< HEAD
             MEMBERSHIP.membership(appHash, kvPairs, merkleProofs);
         _validateMembershipOutput(output.commitmentRoot, height.revisionHeight, trustedConsensusState);
+=======
+            abi.decode(proof.sp1Proof.publicValues, (IMembershipMsgs.MembershipOutput));
+        require(
+            output.kvPairs.length > 0 && output.kvPairs.length <= type(uint16).max,
+            LengthIsOutOfRange(output.kvPairs.length, 1, type(uint16).max)
+        );
+
+        {
+            // loop through the key-value pairs and validate them
+            bool found = false;
+            for (uint256 i = 0; i < output.kvPairs.length; ++i) {
+                if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
+                    continue;
+                }
+
+                bytes memory value = output.kvPairs[i].value;
+                require(
+                    value.length == kvValue.length && keccak256(value) == keccak256(kvValue),
+                    MembershipProofValueMismatch(kvValue, value)
+                );
+
+                found = true;
+                break;
+            }
+            require(found, MembershipProofKeyNotFound(kvPath));
+        }
+
+        _validateMembershipOutput(output.commitmentRoot, proofHeight.revisionHeight, proof.trustedConsensusState);
+
+        _verifySP1Proof(proof.sp1Proof);
+>>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
 
         // We avoid the cost of caching for single kv pairs, as reusing the proof is not necessary
         if (output.kvPairs.length > 1) {
@@ -276,7 +310,7 @@ contract SP1ICS07Tendermint is
     /// @param kvPath The path of the key-value pair.
     /// @param kvValue The value of the key-value pair.
     /// @return The timestamp of the new consensus state.
-    // solhint-disable-next-line code-complexity
+    // solhint-disable-next-line code-complexity,function-max-lines
     function _handleSP1UpdateClientAndMembership(
         IICS02ClientMsgs.Height calldata proofHeight,
         bytes memory proofBytes,
@@ -337,7 +371,7 @@ contract SP1ICS07Tendermint is
         // loop through the key-value pairs and validate them
         {
             bool found = false;
-            for (uint256 i = 0; i < output.kvPairs.length; i++) {
+            for (uint256 i = 0; i < output.kvPairs.length; ++i) {
                 if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
                     continue;
                 }
@@ -528,7 +562,7 @@ contract SP1ICS07Tendermint is
     /// @dev WARNING: Transient store is not reverted even if a message within a transaction reverts.
     /// @dev WARNING: This function must be called after all proof and validation checks.
     function _cacheKvPairs(uint64 proofHeight, IMembershipMsgs.KVPair[] memory kvPairs, uint256 timestamp) private {
-        for (uint256 i = 0; i < kvPairs.length; i++) {
+        for (uint256 i = 0; i < kvPairs.length; ++i) {
             bytes32 kvPairHash = keccak256(abi.encode(proofHeight, kvPairs[i]));
             kvPairHash.asUint256().tstore(timestamp);
         }
