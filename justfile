@@ -1,5 +1,9 @@
 set dotenv-load
 
+# Default task lists all available tasks
+default:
+  just --list
+
 # Build the contracts using `forge build`
 [group('build')]
 build-contracts: clean-foundry
@@ -28,7 +32,7 @@ build-sp1-programs:
 [group('build')]
 build-cw-ics08-wasm-eth:
 	docker run --rm -v "$(pwd)":/code --mount type=volume,source="$(basename "$(pwd)")_cache",target=/target --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry cosmwasm/optimizer:0.17.0 ./programs/cw-ics08-wasm-eth
-	cp artifacts/cw_ics08_wasm_eth.wasm e2e/interchaintestv8/wasm 
+	cp artifacts/cw_ics08_wasm_eth.wasm e2e/interchaintestv8/wasm
 	gzip -n e2e/interchaintestv8/wasm/cw_ics08_wasm_eth.wasm -f
 
 # Build the relayer docker image
@@ -120,6 +124,13 @@ generate-fixtures-wasm: clean-foundry install-relayer
 	cd e2e/interchaintestv8 && ETH_TESTNET_TYPE=pos GENERATE_WASM_FIXTURES=true E2E_PROOF_TYPE=groth16 go test -v -run '^TestWithIbcEurekaTestSuite/Test_TimeoutPacketFromCosmos$' -timeout 60m
 	@echo "Generating multi-period client update fixtures..."
 	cd e2e/interchaintestv8 && ETH_TESTNET_TYPE=pos GENERATE_WASM_FIXTURES=true go test -v -run '^TestWithRelayerTestSuite/Test_MultiPeriodClientUpdateToCosmos$' -timeout 60m
+
+# Generate the fixtures for the Tendermint light client tests using the e2e tests
+[group('generate')]
+generate-fixtures-tendermint-light-client: install-relayer
+	@echo "Generating Tendermint light client fixtures... This may take a while."
+	@echo "Generating basic membership and update client fixtures..."
+	cd e2e/interchaintestv8 && GENERATE_TENDERMINT_LIGHT_CLIENT_FIXTURES=true go test -v -run '^TestWithCosmosRelayerTestSuite/Test_UpdateClient$' -timeout 40m
 
 # Generate go types for the e2e tests from the etheruem light client code
 [group('generate')]
@@ -234,7 +245,7 @@ test-e2e-cosmos-relayer testname:
 
 # Run anu e2e test in the SP1ICS07TendermintTestSuite. For example, `just test-e2e-sp1-ics07 Test_Deploy`
 [group('test')]
-test-e2e-sp1-ics07 testname:
+test-e2e-sp1-ics07 testname: install-operator
 	@echo "Running {{testname}} test..."
 	just test-e2e TestWithSP1ICS07TendermintTestSuite/{{testname}}
 
@@ -256,3 +267,9 @@ clean-cargo:
 	@echo "Cleaning up cargo target directory"
 	cargo clean
 	cd programs/sp1-programs && cargo clean
+
+# Run Slither static analysis on contracts
+[group('security')]
+slither:
+	@echo "Running Slither static analysis..."
+	slither . --config-file .slither.config.json

@@ -83,19 +83,19 @@ func (s *Services) StartLoop() {
 	go func() {
 		for {
 			// update client on Eth side routinely
-			if ctx.latestEthTimestamp.latestUpdateTime.Add(s.ethConfig.IntervalParams.blockTime).After(time.Now()) {
+			if ctx.latestEthTimestamp.LatestUpdateTime.Add(s.ethConfig.IntervalParams.blockTime).After(time.Now()) {
 				s.worker.UpdateCosmosClient(ctx, "groth16", 1, "2/3")
 
 				// update latest update time
-				ctx.latestEthTimestamp.latestUpdateTime = time.Now()
+				ctx.latestEthTimestamp.LatestUpdateTime = time.Now()
 			}
 
 			// update client on Cosmos side routinely
-			if ctx.latestCosmosTimestamp.latestUpdateTime.Add(s.cosmosConfig.IntervalParams.blockTime).After(time.Now()) {
+			if ctx.latestCosmosTimestamp.LatestUpdateTime.Add(s.cosmosConfig.IntervalParams.blockTime).After(time.Now()) {
 				s.worker.UpdateEthClient(ctx)
 
 				// update latest update time
-				ctx.latestCosmosTimestamp.latestUpdateTime = time.Now()
+				ctx.latestCosmosTimestamp.LatestUpdateTime = time.Now()
 			}
 		}
 	}()

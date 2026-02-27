@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+// solhint-disable gas-small-strings
+
 // solhint-disable-next-line no-global-import
 import "forge-std/console.sol";
 import { SP1ICS07TendermintTest } from "./SP1ICS07TendermintTest.sol";
@@ -105,6 +107,7 @@ contract SP1ICS07MisbehaviourTest is SP1ICS07TendermintTest, IMisbehaviourMsgs {
         ics07Tendermint.upgradeClient(bytes(""));
     }
 
+    //solhint-disable-next-line function-max-lines
     function test_InvalidMisbehaviour() public {
         setUpMisbehaviour("misbehaviour_double_sign-plonk_fixture.json");
 
@@ -178,11 +181,11 @@ contract SP1ICS07MisbehaviourTest is SP1ICS07TendermintTest, IMisbehaviourMsgs {
         // ics07Tendermint.misbehaviour(submitMsgBz);
 
         // invalid proof
-        // badSubmitMsg = cloneSubmitMsg();
-        // badOutput = cloneOutput();
-        // badOutput.time = badOutput.time + 1;
-        // badSubmitMsg.sp1Proof.publicValues = abi.encode(badOutput);
-        // submitMsgBz = abi.encode(badSubmitMsg);
+        badSubmitMsg = cloneSubmitMsg();
+        badOutput = cloneOutput();
+        ++badOutput.time;
+        badSubmitMsg.sp1Proof.publicValues = abi.encode(badOutput);
+        submitMsgBz = abi.encode(badSubmitMsg);
         vm.expectRevert(abi.encodeWithSelector(SP1Verifier.InvalidProof.selector));
         // ics07Tendermint.misbehaviour(submitMsgBz);
 
