@@ -107,7 +107,7 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 			}
 
 			// target height are the latest block height
-			value, merkleProof, err := utils.ProvePath(ctx, txResp.Proof.Proof.Aunts, uint64(txResp.Height))
+			value, merkleProof, err := utils.ProvePath(ctx.CosmosClient(), txResp.Proof.Proof.Aunts, uint64(txResp.Height))
 
 			membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
 				Height: tendermintContract.IICS02ClientMsgsHeight{
@@ -124,7 +124,7 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 					*merkleProof,
 				},
 				// current appHash
-				AppHash: utils.BytesToBytes32(txResp.TxResult),
+				AppHash: utils.BytesToBytes32(trustedBlockResp.Block.AppHash),
 				// trusted consensus from revision height block
 				TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
 					Timestamp:          big.NewInt(trustedBlockResp.Block.Header.Time.Unix()),

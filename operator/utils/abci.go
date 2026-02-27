@@ -6,15 +6,15 @@ import (
 	"fmt"
 
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
-	"operator/services"
 
 	crypto "github.com/cometbft/cometbft/proto/tendermint/crypto"
+	"github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
 	ics23 "github.com/cosmos/ics23/go"
 )
 
-func ProvePath(ctx services.Context, path [][]byte, targetHeight uint64) ([]byte, *tendermintContract.IMembershipMsgsMerkleProof, error) {
-	abciResp, err := ctx.CosmosClient().ABCIQuery(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil))
+func ProvePath(client *http.HTTP, path [][]byte, targetHeight uint64) ([]byte, *tendermintContract.IMembershipMsgsMerkleProof, error) {
+	abciResp, err := client.ABCIQuery(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil))
 	if err != nil {
 		return nil, nil, err
 	}
