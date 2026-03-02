@@ -167,7 +167,7 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 			}
 
 			// try send recv packet msg to ethereum
-			s.txHandler.SendTx(ctx, msgRecvPacket)
+			s.txHandler.SendEthTx(ctx, msgRecvPacket)
 		}
 	}
 }

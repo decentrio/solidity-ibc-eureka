@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/v10/modules/core/23-commitment/types"
 	ics23 "github.com/cosmos/ics23/go"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
 const (
@@ -175,17 +175,7 @@ func (s SupportedZkAlgorithm) String() string {
 	}
 }
 
-func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, proofType string) (*SP1ICS07TendermintGenesis, error) {
-	// Read RPC endpoint from environment variable
-	rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
-	if rpcEndpoint == "" {
-		return nil, fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
-	}
-	client, err := rpchttp.New(rpcEndpoint, "/websocket")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RPC client: %w", err)
-	}
-
+func GetGenesis(client *rpchttp.HTTP, trustedBlock int64, trustingPeriod uint32, trustLevel string, proofType string) (*SP1ICS07TendermintGenesis, error) {
 	status, err := client.Status(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
@@ -569,6 +559,44 @@ func ParseInnerOp(innerOp *ics23.InnerOp) tendermintContract.IMembershipMsgsInne
 	}
 }
 
+func EncodeClientState(clientState updateClientContract.IICS07TendermintMsgsClientState) ([]byte, error) {
+	clientStateType, _ := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+		{Name: "chainId", Type: "string"},
+		{Name: "trustLevel", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "numerator", Type: "uint8"},
+			{Name: "denominator", Type: "uint8"},
+		}},
+		{Name: "latestHeight", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "revisionNumber", Type: "uint64"},
+			{Name: "revisionHeight", Type: "uint64"},
+		}},
+		{Name: "trustingPeriod", Type: "uint32"},
+		{Name: "unbondingPeriod", Type: "uint32"},
+		{Name: "isFrozen", Type: "bool"},
+		{Name: "zkAlgorithm", Type: "uint8"},
+	})
+
+	args := abi.Arguments{
+		{Type: clientStateType},
+	}
+	encoded, err := args.Pack(clientState)
+	return encoded, err
+}
+
+func EncodeConsensusState(consensusState updateClientContract.IICS07TendermintMsgsConsensusState) ([]byte, error) {
+	consensusStateType, _ := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+		{Name: "timestamp", Type: "uint128"},
+		{Name: "root", Type: "bytes32"},
+		{Name: "nextValidatorsHash", Type: "bytes32"},
+	})
+
+	args := abi.Arguments{
+		{Type: consensusStateType},
+	}
+	encoded, err := args.Pack(consensusState)
+	return encoded, err
+
+}
 func bytesToBytes32(data []byte) [32]byte {
 	var result [32]byte
 	copy(result[:], data)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -25,7 +26,13 @@ type Context struct {
 	beaconAPIURL string
 
 	// Ethereum light client configuration
-	ethClientID string
+	ethClientID  string
+	verifier     *common.Address
+	membership   *common.Address
+	misbehaviour *common.Address
+	updateClient *common.Address
+	roleManager  *common.Address
+	ics07Client  *common.Address
 }
 
 func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
@@ -78,6 +85,41 @@ func (c *Context) BeaconAPIURL() string {
 
 func (c *Context) EthClientID() string {
 	return c.ethClientID
+}
+
+func (c *Context) SetAddresses(verifier, membership, updateClient, roleManager string) {
+	verifierAddr := common.HexToAddress(verifier)
+	membershipAddr := common.HexToAddress(membership)
+	updateClientAddr := common.HexToAddress(updateClient)
+	roleManagerAddr := common.HexToAddress(roleManager)
+
+	c.verifier = &verifierAddr
+	c.membership = &membershipAddr
+	c.updateClient = &updateClientAddr
+	c.roleManager = &roleManagerAddr
+}
+
+func (c *Context) SetClient(client common.Address) {
+	c.ics07Client = &client
+}
+func (c *Context) VerifierContract() *common.Address {
+	return c.verifier
+}
+
+func (c *Context) MembershipContract() *common.Address {
+	return c.membership
+}
+
+func (c *Context) MisbehaviourContract() *common.Address {
+	return c.misbehaviour
+}
+
+func (c *Context) UpdateClientContract() *common.Address {
+	return c.updateClient
+}
+
+func (c *Context) RoleManagerAddress() *common.Address {
+	return c.roleManager
 }
 
 func (c *Context) StopClient() {

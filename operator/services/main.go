@@ -10,7 +10,8 @@ import (
 )
 
 type TransactionHandler interface {
-	SendTx(ctx Context, msg any) error
+	CreateEthClientContract(ctx Context, clientState, consensusHash []byte) error
+	SendEthTx(ctx Context, msg any) error
 	SendCosmosTx(ctx Context, msg any) error
 	SendCosmosTxBatch(ctx Context, msgs []any) error
 }
@@ -65,7 +66,30 @@ func (s *Services) StartLoop() {
 		panic(fmt.Errorf("failed to connect to client: %s: ", err.Error()))
 	}
 
+	wrapVerifier := os.Getenv("WRAP_VERIFIER")
+	if wrapVerifier == "" {
+		panic(fmt.Errorf("WRAP_VERIFIER environment variable is required in .env file"))
+	}
+
+	membership := os.Getenv("MEMBERSHIP")
+	if membership == "" {
+		panic(fmt.Errorf("MEMBERSHIP environment variable is required in .env file"))
+	}
+	misbehaviour := os.Getenv("MISBEHAVIOUR")
+	if misbehaviour == "" {
+		panic(fmt.Errorf("MISBEHAVIOUR environment variable is required in .env file"))
+	}
+	updateClient := os.Getenv("UPDATE_CLIENT")
+	if updateClient == "" {
+		panic(fmt.Errorf("UPDATE_CLIENT environment variable is required in .env file"))
+	}
+	roleManager := os.Getenv("ROLE_MANAGER")
+	if roleManager == "" {
+		panic(fmt.Errorf("ROLE_MANAGER environment variable is required in .env file"))
+	}
+
 	ctx := NewCtx(cosmosClient, ethClient)
+	ctx.SetAddresses(wrapVerifier, membership, updateClient, roleManager)
 
 	// listen to new tx events on Eth
 	// add it to handler queue

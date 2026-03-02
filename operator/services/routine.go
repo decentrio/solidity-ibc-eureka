@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	updateclient "operator/bindings/UpdateClient"
+	updateclientContract "operator/bindings/UpdateClient"
 	operatorclient "operator/client"
 	"time"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	ibcwasmtypes "github.com/cosmos/ibc-go/modules/light-clients/08-wasm/v10/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type Worker struct {
@@ -22,6 +23,29 @@ func NewWorker(txHandler TransactionHandler) *Worker {
 	return &Worker{
 		txHandler,
 	}
+}
+
+func (w *Worker) CreateCosmosClient(ctx Context, proofType string, trustingPeriod uint32, trustedBlock int64, trustLevel string) error {
+	genesis, err := operatorclient.GetGenesis(ctx.CosmosClient(), trustedBlock, trustingPeriod, trustLevel, proofType)
+	if err != nil {
+		return fmt.Errorf("failed to get genesis: %w", err)
+	}
+
+	clientState := genesis.TrustedClientState
+	consensusState := genesis.TrustedConsensusState
+
+	clientStateEncoded, err := operatorclient.EncodeClientState(clientState)
+	if err != nil {
+		return fmt.Errorf("failed to encode client state: %w", err)
+	}
+
+	consensusStateEncoded, err := operatorclient.EncodeConsensusState(consensusState)
+	if err != nil {
+		return fmt.Errorf("failed to encode client state: %w", err)
+	}
+
+	consensusHash := crypto.Keccak256(consensusStateEncoded)
+	return w.txHandler.CreateEthClientContract(ctx, clientStateEncoded, consensusHash)
 }
 
 func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock int64, trustLevel string) error {
@@ -73,10 +97,10 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
 	}
 
-	clientState := updateclient.IICS07TendermintMsgsClientState{
+	clientState := updateclientContract.IICS07TendermintMsgsClientState{
 		ChainId:    chainId,
 		TrustLevel: trustThreshold,
-		LatestHeight: updateclient.IICS02ClientMsgsHeight{
+		LatestHeight: updateclientContract.IICS02ClientMsgsHeight{
 			RevisionNumber: revision,
 			RevisionHeight: uint64(trustedLightBlock.SignedHeader.Header.Height),
 		},
@@ -86,7 +110,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		UnbondingPeriod: uint32(unbondingPeriod),
 	}
 
-	consensusState := updateclient.IICS07TendermintMsgsConsensusState{
+	consensusState := updateclientContract.IICS07TendermintMsgsConsensusState{
 		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
 		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
 		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
@@ -96,14 +120,14 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	// TODO: generate proof
 
-	msg := updateclient.IUpdateClientMsgsMsgUpdateClient{
+	msg := updateclientContract.IUpdateClientMsgsMsgUpdateClient{
 		ClientState:           clientState,
 		TrustedConsensusState: consensusState,
 		Time:                  big.NewInt(time.Now().Unix()),
 		ProposedHeader:        proposedHeader,
 	}
 
-	return w.txHandler.SendTx(ctx, msg)
+	return w.txHandler.SendEthTx(ctx, msg)
 }
 
 func (w *Worker) UpdateEthClient(ctx Context) error {
