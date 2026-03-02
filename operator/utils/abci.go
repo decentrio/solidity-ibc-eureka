@@ -8,19 +8,22 @@ import (
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 
 	crypto "github.com/cometbft/cometbft/proto/tendermint/crypto"
+	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
 	ics23 "github.com/cosmos/ics23/go"
 )
 
 func ProvePath(client *http.HTTP, path [][]byte, targetHeight uint64) ([]byte, *tendermintContract.IMembershipMsgsMerkleProof, error) {
-	abciResp, err := client.ABCIQuery(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil))
+	abciResp, err := client.ABCIQueryWithOptions(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil), rpcclient.ABCIQueryOptions{
+		Height: 0,
+		Prove:  true,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-
 	if abciResp.Response.Height+1 != int64(targetHeight) {
-		return nil, nil, fmt.Errorf("invalid proof height, expected %v, got %v", targetHeight, abciResp.Response.Height)
+		return nil, nil, fmt.Errorf("invalid proof height, expected %v, got %v", targetHeight-1, abciResp.Response.Height)
 	}
 
 	if !bytes.Equal(abciResp.Response.Key, path[1]) {

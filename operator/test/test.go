@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"operator/utils"
 	"os"
-	"strings"
+	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
@@ -16,6 +17,12 @@ import (
 
 var tendermintAbiJson []byte
 var initErr error
+
+type EurekaEvent struct {
+	eventType string
+	packet    channeltypesv2.Packet
+	ack       *channeltypesv2.Acknowledgement
+}
 
 func init() {
 	tendermintAbiJson, initErr = os.ReadFile("../../abi/SP1ICS07Tendermint.json")
@@ -39,22 +46,25 @@ func subscribeCosmos(logger *log.Logger, client *rpchttp.HTTP) {
 		case e := <-sub:
 			fmt.Println("events: ", e.Events)
 			// handle event
-			sendPacketEvent := e.Events[channeltypesv2.EventTypeSendPacket]
+			sendPacketEvent := e.Events[EVENT_SEND_PACKET_FIELD]
 			if sendPacketEvent == nil {
+				fmt.Println("sendPacketEvent is empty")
 				continue
 			}
-			packetHex := e.Events[channeltypesv2.AttributeKeyEncodedPacketHex]
-			fmt.Println("packetHex: ", packetHex)
+			// packetHex := e.Events[channeltypesv2.AttributeKeyEncodedPacketHex]
+			// fmt.Println("packetHex: ", packetHex)
 
 			txHashStr := e.Events[EVENT_TX_HASH_FIELD]
 			if txHashStr == nil {
+				fmt.Println("txHashStr is empty")
 				continue
 			}
-			txHash, err := mustTxHashBytes(txHashStr[0])
-			if err != nil {
-				fmt.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
-				continue
-			}
+			fmt.Println("txHashStr: ", txHashStr)
+			// txHash, err := hex.DecodeString(txHashStr[0])
+			// if err != nil {
+			// 	fmt.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
+			// 	continue
+			// }
 
 			packetEncodedStr := sendPacketEvent[0]
 			packetBytes, err := hex.DecodeString(packetEncodedStr)
@@ -70,19 +80,27 @@ func subscribeCosmos(logger *log.Logger, client *rpchttp.HTTP) {
 				continue
 			}
 
+			txHash, err := hex.DecodeString(txHashStr[0])
+			time.Sleep(time.Second)
 			txResp, err := client.Tx(context.Background(), txHash, true)
 			if err != nil {
 				fmt.Println(fmt.Errorf("Failed to fetch tx from tx hash: %s", err.Error()))
 				continue
 			}
+			fmt.Println("txResp: ", txResp)
 
 			revisionHeight := int64(txResp.Height)
 
+			sequenceBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(sequenceBytes, packet.Sequence)
+			path := []byte(packet.SourceClient)
+			path = append(path, []byte{1}...)
+			path = append(path, sequenceBytes...)
 			// target height are the latest block height
-			_, merkleProof, err := utils.ProvePath(client, txResp.Proof.Proof.Aunts, uint64(revisionHeight))
+			_, merkleProof, err := utils.ProvePath(client, [][]byte{[]byte("ibc"), path}, uint64(revisionHeight))
 
 			fmt.Println(merkleProof)
-
+			fmt.Println(err)
 		}
 	}
 }
@@ -99,19 +117,5 @@ func main() {
 	}
 	log := log.Default()
 	fmt.Println("start indexing...")
-
 	subscribeCosmos(log, tendermintRpcClient)
-}
-
-func mustTxHashBytes(txHashHex string) ([]byte, error) {
-	h := strings.TrimSpace(txHashHex)
-	h = strings.TrimPrefix(h, "0x")
-	bz, err := hex.DecodeString(h)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tx hash hex: %w", err)
-	}
-	if len(bz) != 32 {
-		return nil, fmt.Errorf("tx hash must decode to 32 bytes, got %d", len(bz))
-	}
-	return bz, nil
 }
