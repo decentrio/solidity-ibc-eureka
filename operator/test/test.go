@@ -7,6 +7,7 @@ import (
 	"log"
 	"operator/utils"
 	"os"
+	"strings"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
@@ -49,7 +50,7 @@ func subscribeCosmos(logger *log.Logger, client *rpchttp.HTTP) {
 			if txHashStr == nil {
 				continue
 			}
-			txHash, err := hex.DecodeString(txHashStr[0])
+			txHash, err := mustTxHashBytes(txHashStr[0])
 			if err != nil {
 				fmt.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
 				continue
@@ -98,5 +99,19 @@ func main() {
 	}
 	log := log.Default()
 	fmt.Println("start indexing...")
+
 	subscribeCosmos(log, tendermintRpcClient)
+}
+
+func mustTxHashBytes(txHashHex string) ([]byte, error) {
+	h := strings.TrimSpace(txHashHex)
+	h = strings.TrimPrefix(h, "0x")
+	bz, err := hex.DecodeString(h)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tx hash hex: %w", err)
+	}
+	if len(bz) != 32 {
+		return nil, fmt.Errorf("tx hash must decode to 32 bytes, got %d", len(bz))
+	}
+	return bz, nil
 }
