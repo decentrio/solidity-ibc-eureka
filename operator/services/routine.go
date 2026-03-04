@@ -24,10 +24,10 @@ func NewWorker(txHandler TransactionHandler) *Worker {
 	}
 }
 
-func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock int64, trustLevel string) error {
+func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock int64, trustLevel string) (*operatorclient.LightBlock, error) {
 	status, err := ctx.CosmosClient().Status(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to get status: %w", err)
+		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
 
 	if trustedBlock == 0 {
@@ -36,23 +36,23 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	trustedLightBlock, err := operatorclient.GetLightBlock(ctx.CosmosClient(), trustedBlock)
 	if err != nil {
-		return fmt.Errorf("failed to get trusted light block: %w", err)
+		return nil, fmt.Errorf("failed to get trusted light block: %w", err)
 	}
 
 	latestLightBlock, err := operatorclient.GetLightBlock(ctx.CosmosClient(), status.SyncInfo.LatestBlockHeight)
 	if err != nil {
-		return fmt.Errorf("failed to get latest light block: %w", err)
+		return nil, fmt.Errorf("failed to get latest light block: %w", err)
 	}
 
 	unbondingPeriod, err := operatorclient.GetUnbondingTime(ctx.CosmosClient())
 	if err != nil {
-		return fmt.Errorf("failed to get unbonding time: %w", err)
+		return nil, fmt.Errorf("failed to get unbonding time: %w", err)
 	}
 
 	trustingPeriod := uint32(unbondingPeriod * 2 / 3)
 
 	if trustingPeriod > uint32(unbondingPeriod) {
-		return fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
+		return nil, fmt.Errorf("trusting period %d cannot be greater than unbonding period %d", trustingPeriod, uint32(unbondingPeriod))
 	}
 
 	chainId := trustedLightBlock.SignedHeader.Header.ChainID
@@ -60,7 +60,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	trustThreshold, err := operatorclient.ParseTrustThreshold(trustLevel)
 	if err != nil {
-		return fmt.Errorf("failed to parse trust level: %w", err)
+		return nil, fmt.Errorf("failed to parse trust level: %w", err)
 	}
 
 	var zkAlgorithm operatorclient.SupportedZkAlgorithm
@@ -70,7 +70,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 	case "plonk":
 		zkAlgorithm = operatorclient.Plonk
 	default:
-		return fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
+		return nil, fmt.Errorf("unsupported proof type: %s, supported types are: groth16, plonk", proofType)
 	}
 
 	clientState := updateclient.IICS07TendermintMsgsClientState{
@@ -103,7 +103,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		ProposedHeader:        proposedHeader,
 	}
 
-	return w.txHandler.SendTx(ctx, msg)
+	return latestLightBlock, w.txHandler.SendTx(ctx, msg)
 }
 
 func (w *Worker) UpdateEthClient(ctx Context) error {

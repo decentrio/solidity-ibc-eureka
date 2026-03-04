@@ -17,10 +17,16 @@ type IntervalConig struct {
 	blockTime   time.Duration
 }
 
+type BatchConfig struct {
+	BatchSize    uint8
+	BatchPeriods time.Duration
+}
+
 type Config struct {
 	KeyPath        string
 	IntervalParams IntervalConig
 	IntervalType   IntervalType
+	BatchConfig    BatchConfig
 }
 
 func NewConfig(KeyPath string, params IntervalConig, intervalType IntervalType) Config {
@@ -37,5 +43,9 @@ func DefaultConfig() Config {
 			blockTime:   DEFAULT_TIME_PERIODS,
 		},
 		IntervalType: timestamp,
+		BatchConfig: BatchConfig{
+			BatchPeriods: time.Second * 10, // default each batch waits for 10 seconds
+			BatchSize:    10,               // default 10 packets per batch
+		},
 	}
 }

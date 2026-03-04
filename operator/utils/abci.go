@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
@@ -11,6 +12,7 @@ import (
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
+	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	ics23 "github.com/cosmos/ics23/go"
 )
 
@@ -90,4 +92,14 @@ func BytesToBytes32(data []byte) [32]byte {
 	var result [32]byte
 	copy(result[:], data)
 	return result
+}
+
+func IbcCommitmentPath(packet channeltypesv2.Packet) [][]byte {
+	sequenceBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(sequenceBytes, packet.Sequence)
+	path := []byte(packet.SourceClient)
+	path = append(path, []byte{1}...)
+	path = append(path, sequenceBytes...)
+
+	return [][]byte{[]byte("ibc"), path}
 }
