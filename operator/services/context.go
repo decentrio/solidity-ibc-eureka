@@ -87,14 +87,16 @@ func (c *Context) EthClientID() string {
 	return c.ethClientID
 }
 
-func (c *Context) SetAddresses(verifier, membership, updateClient, roleManager string) {
+func (c *Context) SetAddresses(verifier, membership, misbehaviour, updateClient, roleManager string) {
 	verifierAddr := common.HexToAddress(verifier)
 	membershipAddr := common.HexToAddress(membership)
+	misbehaviourAddr := common.HexToAddress(misbehaviour)
 	updateClientAddr := common.HexToAddress(updateClient)
 	roleManagerAddr := common.HexToAddress(roleManager)
 
 	c.verifier = &verifierAddr
 	c.membership = &membershipAddr
+	c.misbehaviour = &misbehaviourAddr
 	c.updateClient = &updateClientAddr
 	c.roleManager = &roleManagerAddr
 }

@@ -36,7 +36,7 @@ import (
 type Handler struct {
 }
 
-func (h *Handler) CreateEthClientContract(ctx services.Context, clientState, consensusHash []byte) error {
+func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, consensusHash []byte) error {
 	privKey := os.Getenv("PRIVATE_KEY")
 	if privKey == "" {
 		return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
@@ -44,11 +44,6 @@ func (h *Handler) CreateEthClientContract(ctx services.Context, clientState, con
 	privateKey, err := keys.RestoreKey(privKey)
 	if err != nil {
 		return fmt.Errorf("failed to restore private key: %w", err)
-	}
-
-	chainIdEth := os.Getenv("CHAIN_ID")
-	if chainIdEth == "" {
-		return fmt.Errorf("CHAIN_ID environment variable is required in .env file")
 	}
 
 	publicKey, err := keys.PublicKey(privateKey)
@@ -66,9 +61,8 @@ func (h *Handler) CreateEthClientContract(ctx services.Context, clientState, con
 		log.Fatal(err)
 	}
 
-	chainIdInt := big.NewInt(0)
-	chainIdInt, ok := chainIdInt.SetString(chainIdEth, 10)
-	if !ok {
+	chainIdInt, err := ctx.EthClient().ChainID(context.Background())
+	if err != nil {
 		return fmt.Errorf("invalid chain id: %v", err)
 	}
 
@@ -77,8 +71,8 @@ func (h *Handler) CreateEthClientContract(ctx services.Context, clientState, con
 		return fmt.Errorf("failed to create auth transactor: %w", err)
 	}
 	auth.Nonce = big.NewInt(int64(nonce))
-	auth.Value = big.NewInt(0)     // in wei
-	auth.GasLimit = uint64(300000) // in units
+	auth.Value = big.NewInt(0)      // in wei
+	auth.GasLimit = uint64(3000000) // in units
 	auth.GasPrice = gasPrice
 
 	address, tx, _, err := tendermintContract.DeployContractSP1ICS07Tendermint(
@@ -112,11 +106,6 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		return fmt.Errorf("failed to restore private key: %w", err)
 	}
 
-	chainIdEth := os.Getenv("CHAIN_ID")
-	if chainIdEth == "" {
-		return fmt.Errorf("CHAIN_ID environment variable is required in .env file")
-	}
-
 	publicKey, err := keys.PublicKey(privateKey)
 	if err != nil {
 		log.Fatal(err)
@@ -132,9 +121,8 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		log.Fatal(err)
 	}
 
-	chainIdInt := big.NewInt(0)
-	chainIdInt, ok := chainIdInt.SetString(chainIdEth, 10)
-	if !ok {
+	chainIdInt, err := ctx.EthClient().ChainID(context.Background())
+	if err != nil {
 		return fmt.Errorf("invalid chain id: %v", err)
 	}
 

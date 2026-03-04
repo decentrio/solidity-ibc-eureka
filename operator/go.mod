@@ -11,6 +11,7 @@ require (
 	github.com/cosmos/ibc-go/v10 v10.3.0
 	github.com/cosmos/ics23/go v0.11.0
 	github.com/ethereum/go-ethereum v1.16.2
+	github.com/gogo/protobuf v1.3.2
 	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.9.1
 	go.uber.org/zap v1.27.0
@@ -83,7 +84,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/gogo/googleapis v1.4.1 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v1.2.4 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

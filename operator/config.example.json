@@ -1,0 +1,35 @@
+{
+  "server": {
+    "log_level": "info",
+    "address": "127.0.0.1",
+    "port": 3000
+  },
+  "modules": [
+    {
+      "name": "cosmos_to_eth",
+      "src_chain": "test-ibc-eth",
+      "dst_chain": "0x1",
+      "config": {
+        "tm_rpc_url": "http://127.0.0.1:26657",
+        "ics26_address": "0x482af59820c30d13c9b06adc75c741912e599d29",
+        "eth_rpc_url": "http://127.0.0.1:54594",
+        "wrapper_verifier": "",
+        "membership": "",
+        "misbehaviour": "",
+        "update_client": ""
+      }
+    },
+    {
+      "name": "eth_to_cosmos",
+      "src_chain": "0x1",
+      "dst_chain": "test-ibc-eth",
+      "config": {
+        "tm_rpc_url": "http://127.0.0.1:26657",
+        "ics26_address": "0x482af59820c30d13c9b06adc75c741912e599d29",
+        "eth_rpc_url": "http://127.0.0.1:54594",
+        "eth_beacon_api_url": "",
+        "signer_address": "cosmos10d07y265gmmuvt4z0w9aw880jnsr700j6zn9kn"
+      }
+    }
+  ]
+}

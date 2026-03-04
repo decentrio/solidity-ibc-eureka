@@ -10,7 +10,7 @@ import (
 )
 
 type TransactionHandler interface {
-	CreateEthClientContract(ctx Context, clientState, consensusHash []byte) error
+	CreateCosmosClientContract(ctx Context, clientState, consensusHash []byte) error
 	SendEthTx(ctx Context, msg any) error
 	SendCosmosTx(ctx Context, msg any) error
 	SendCosmosTxBatch(ctx Context, msgs []any) error
@@ -41,7 +41,7 @@ func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionH
 		ethConfig:    ethConfig,
 		cosmosConfig: cosmosConfig,
 		worker: &Worker{
-			txHandler: txHandler,
+			txHandler,
 		},
 		packets: make(chan any),
 	}
@@ -89,7 +89,7 @@ func (s *Services) StartLoop() {
 	}
 
 	ctx := NewCtx(cosmosClient, ethClient)
-	ctx.SetAddresses(wrapVerifier, membership, updateClient, roleManager)
+	ctx.SetAddresses(wrapVerifier, membership, misbehaviour, updateClient, roleManager)
 
 	// listen to new tx events on Eth
 	// add it to handler queue

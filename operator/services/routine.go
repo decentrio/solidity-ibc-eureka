@@ -16,7 +16,7 @@ import (
 )
 
 type Worker struct {
-	txHandler TransactionHandler
+	TxHandler TransactionHandler
 }
 
 func NewWorker(txHandler TransactionHandler) *Worker {
@@ -45,7 +45,7 @@ func (w *Worker) CreateCosmosClient(ctx Context, proofType string, trustingPerio
 	}
 
 	consensusHash := crypto.Keccak256(consensusStateEncoded)
-	return w.txHandler.CreateEthClientContract(ctx, clientStateEncoded, consensusHash)
+	return w.TxHandler.CreateCosmosClientContract(ctx, clientStateEncoded, consensusHash)
 }
 
 func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock int64, trustLevel string) error {
@@ -127,7 +127,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		ProposedHeader:        proposedHeader,
 	}
 
-	return w.txHandler.SendEthTx(ctx, msg)
+	return w.TxHandler.SendEthTx(ctx, msg)
 }
 
 func (w *Worker) UpdateEthClient(ctx Context) error {
@@ -208,7 +208,7 @@ func (w *Worker) updateEthClientSamePeriod(ctx Context, beaconAPIURL, ethClientI
 		return fmt.Errorf("failed to build update client message: %w", err)
 	}
 
-	return w.txHandler.SendCosmosTx(ctx, msg)
+	return w.TxHandler.SendCosmosTx(ctx, msg)
 }
 
 func (w *Worker) updateEthClientWithPeriodCrossing(ctx Context, beaconAPIURL, ethClientID string, ethClientState *operatorclient.EthereumClientState, trustedSlot, trustedPeriod, targetPeriod uint64, finalityUpdate *operatorclient.LightClientFinalityUpdate, finalizedSlot uint64) error {
@@ -315,7 +315,7 @@ func (w *Worker) updateEthClientWithPeriodCrossing(ctx Context, beaconAPIURL, et
 		return nil
 	}
 
-	return w.txHandler.SendCosmosTxBatch(ctx, msgs)
+	return w.TxHandler.SendCosmosTxBatch(ctx, msgs)
 }
 
 // parseSlot parses a slot string to uint64
