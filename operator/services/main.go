@@ -35,7 +35,7 @@ type TransactionHandler interface {
 }
 
 type EventListener interface {
-	SubscribeCosmos(ctx Context)
+	SubscribeCosmos(ctx Context, batchBuilder *BatchBuilder)
 	SubscribeEth(ctx Context)
 }
 
@@ -46,6 +46,9 @@ type Services struct {
 
 	ethConfig    Config
 	cosmosConfig Config
+
+	BatchPackets chan BatchPackets
+	BatchBuilder *BatchBuilder
 
 	txHandler TransactionHandler
 }
@@ -58,6 +61,8 @@ func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionH
 		worker: &Worker{
 			txHandler: txHandler,
 		},
+		BatchPackets: make(chan BatchPackets),
+		BatchBuilder: NewBatchBuidler(),
 	}
 }
 
@@ -85,7 +90,7 @@ func (s *Services) StartLoop() {
 	// listen to new tx events on Eth
 	// add it to handler queue
 	go func() {
-		s.listener.SubscribeCosmos(ctx)
+		s.listener.SubscribeCosmos(ctx, s.BatchBuilder)
 	}()
 
 	// listen to new tx events on Cosmos
@@ -119,9 +124,16 @@ func (s *Services) StartLoop() {
 		}
 	}()
 
+	// check for batch builder
+	go func() {
+		for {
+			s.BatchBuilder.CheckBatch(ctx.Config.BatchConfig, s.BatchPackets)
+		}
+	}()
+
 	// handle packets
 	for {
-		batch, ok := <-ctx.BatchPackets
+		batch, ok := <-s.BatchPackets
 		if !ok {
 			fmt.Println("Channel closed, exiting loop")
 			break // Exit the loop when the channel is closed

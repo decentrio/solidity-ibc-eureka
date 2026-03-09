@@ -32,6 +32,9 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	if trustedBlock == 0 {
 		trustedBlock = status.SyncInfo.LatestBlockHeight
+	} else if trustedBlock == status.SyncInfo.LatestBlockHeight {
+		// if trusted block height is equal to latest block height stop here
+		return nil, fmt.Errorf("client is up to dated")
 	}
 
 	trustedLightBlock, err := operatorclient.GetLightBlock(ctx.CosmosClient(), trustedBlock)
@@ -87,7 +90,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 	}
 
 	consensusState := updateclient.IICS07TendermintMsgsConsensusState{
-		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
+		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.Unix()),
 		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
 		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
 	}

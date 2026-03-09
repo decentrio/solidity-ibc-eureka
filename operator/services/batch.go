@@ -1,8 +1,22 @@
 package services
 
-import "time"
+import (
+	"sync"
+	"time"
+
+	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
+)
+
+type Packet struct {
+	Packet *channeltypesv2.Packet
+}
+
+type BatchPackets struct {
+	Packets []Packet
+}
 
 type BatchBuilder struct {
+	mtx       sync.Mutex
 	timestamp time.Time
 	packets   []Packet
 }
@@ -15,7 +29,9 @@ func NewBatchBuidler() *BatchBuilder {
 }
 
 func (b *BatchBuilder) InsertPacket(packet Packet) {
+	b.mtx.Lock()
 	b.packets = append(b.packets, packet)
+	b.mtx.Unlock()
 }
 
 func (b *BatchBuilder) ClearBatch() {
@@ -23,15 +39,18 @@ func (b *BatchBuilder) ClearBatch() {
 	b.packets = []Packet{}
 }
 
-func (b *BatchBuilder) CheckBatch(ctx Context) {
-	if len(b.packets) < int(ctx.Config.BatchConfig.BatchSize) && b.timestamp.After(time.Now().Add(ctx.Config.BatchConfig.BatchPeriods)) {
-		ctx.BatchPackets <- BatchPackets{
+func (b *BatchBuilder) CheckBatch(config BatchConfig, ch chan<- BatchPackets) {
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	if len(b.packets) < int(config.BatchSize) && time.Now().After(b.timestamp.Add(config.BatchPeriods)) {
+		ch <- BatchPackets{
 			Packets: b.packets,
 		}
 
 		b.ClearBatch()
-	} else if len(b.packets) > int(ctx.Config.BatchConfig.BatchSize) {
-		ctx.BatchPackets <- BatchPackets{
+	} else if len(b.packets) > int(config.BatchSize) {
+		ch <- BatchPackets{
 			Packets: b.packets,
 		}
 

@@ -26,7 +26,7 @@ func NewSubscriber() *Subscriber {
 	return &Subscriber{}
 }
 
-func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
+func (s *Subscriber) SubscribeCosmos(ctx services.Context, batchBuilder *services.BatchBuilder) {
 	sub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_SEND_PACKET_EVENT)
 	if err != nil {
 		ctx.Logger.Println(err.Error())
@@ -40,18 +40,6 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 			if sendPacketEvent == nil {
 				continue
 			}
-
-			// txHashStr := e.Events[EVENT_TX_HASH_FIELD]
-			// if txHashStr == nil {
-			// 	ctx.Logger.Println(fmt.Errorf("Invalid tx hash"))
-			// 	continue
-			// }
-			// txHash, err := hex.DecodeString(txHashStr[0])
-			// if err != nil {
-			// 	// TODO handle log here
-			// 	ctx.Logger.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
-			// 	continue
-			// }
 
 			packetEncodedStr := sendPacketEvent[0]
 			packetBytes, err := hex.DecodeString(packetEncodedStr)
@@ -69,7 +57,7 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 				continue
 			}
 
-			ctx.BatchBuilder.InsertPacket(services.Packet{
+			batchBuilder.InsertPacket(services.Packet{
 				Packet: &packet,
 			})
 		}

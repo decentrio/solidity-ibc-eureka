@@ -20,8 +20,6 @@ type Context struct {
 
 	latestEthTimestamp    Timestamp
 	latestCosmosTimestamp Timestamp
-	BatchPackets          chan BatchPackets
-	BatchBuilder          *BatchBuilder
 
 	cosmosClient *rpchttp.HTTP
 	ethClient    *ethclient.Client
@@ -46,8 +44,6 @@ func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
 			LatestUpdateTime:   time.Now(),
 			LatestUpdateHeight: 0,
 		},
-		BatchPackets: make(chan BatchPackets),
-		BatchBuilder: NewBatchBuidler(),
 	}
 }
 
