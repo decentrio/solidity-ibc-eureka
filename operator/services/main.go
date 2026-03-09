@@ -110,8 +110,10 @@ func (s *Services) StartLoop() {
 				}
 
 				// update latest update time
+				ctx.latestEthTimestamp.mtx.Lock()
 				ctx.latestEthTimestamp.LatestUpdateTime = time.Now()
 				ctx.latestEthTimestamp.LatestUpdateHeight = uint64(latestBlock.BlockHeight)
+				ctx.latestEthTimestamp.mtx.Unlock()
 			}
 
 			// update client on Cosmos side routinely
@@ -119,7 +121,10 @@ func (s *Services) StartLoop() {
 				s.worker.UpdateEthClient(ctx)
 
 				// update latest update time
+				ctx.latestCosmosTimestamp.mtx.Lock()
 				ctx.latestCosmosTimestamp.LatestUpdateTime = time.Now()
+				ctx.latestCosmosTimestamp.mtx.Unlock()
+
 			}
 		}
 	}()
@@ -127,6 +132,8 @@ func (s *Services) StartLoop() {
 	// check for batch builder
 	go func() {
 		for {
+			// check for batch every 10 seconds
+			time.Sleep(time.Second * 10)
 			s.BatchBuilder.CheckBatch(ctx.Config.BatchConfig, s.BatchPackets)
 		}
 	}()
@@ -145,10 +152,12 @@ func (s *Services) StartLoop() {
 			ctx.Logger.Println(fmt.Errorf("Failed to update cosmos light client: %s", err.Error()))
 		}
 
+		ctx.latestEthTimestamp.mtx.Lock()
 		// update latest update time
 		ctx.latestEthTimestamp.LatestUpdateTime = time.Now()
 		// update latest trusted block height
 		ctx.latestEthTimestamp.LatestUpdateHeight = uint64(latestLightBlock.BlockHeight)
+		ctx.latestEthTimestamp.mtx.Unlock()
 
 		// handle packets in batch
 		for _, packet := range batch.Packets {

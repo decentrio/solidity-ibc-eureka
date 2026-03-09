@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
@@ -10,6 +11,7 @@ import (
 )
 
 type Timestamp struct {
+	mtx                sync.Mutex
 	LatestUpdateTime   time.Time
 	LatestUpdateHeight uint64
 }
@@ -18,8 +20,8 @@ type Context struct {
 	Logger *log.Logger
 	Config Config
 
-	latestEthTimestamp    Timestamp
-	latestCosmosTimestamp Timestamp
+	latestEthTimestamp    *Timestamp
+	latestCosmosTimestamp *Timestamp
 
 	cosmosClient *rpchttp.HTTP
 	ethClient    *ethclient.Client
@@ -36,11 +38,11 @@ func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
 		ethClient:    ethClient,
 		beaconAPIURL: "",
 		ethClientID:  "",
-		latestEthTimestamp: Timestamp{
+		latestEthTimestamp: &Timestamp{
 			LatestUpdateTime:   time.Now(),
 			LatestUpdateHeight: 0,
 		},
-		latestCosmosTimestamp: Timestamp{
+		latestCosmosTimestamp: &Timestamp{
 			LatestUpdateTime:   time.Now(),
 			LatestUpdateHeight: 0,
 		},
@@ -54,11 +56,11 @@ func NewCtxWithBeacon(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client, b
 		ethClient:    ethClient,
 		beaconAPIURL: beaconAPIURL,
 		ethClientID:  ethClientID,
-		latestEthTimestamp: Timestamp{
+		latestEthTimestamp: &Timestamp{
 			LatestUpdateTime:   time.Now(),
 			LatestUpdateHeight: 0,
 		},
-		latestCosmosTimestamp: Timestamp{
+		latestCosmosTimestamp: &Timestamp{
 			LatestUpdateTime:   time.Now(),
 			LatestUpdateHeight: 0,
 		},
@@ -89,10 +91,10 @@ func (c *Context) StopClient() {
 	c.ethClient.Close()
 }
 
-func (c *Context) LatestCosmosTimestamp() Timestamp {
+func (c *Context) LatestCosmosTimestamp() *Timestamp {
 	return c.latestCosmosTimestamp
 }
 
-func (c *Context) LatestEthTimestamp() Timestamp {
+func (c *Context) LatestEthTimestamp() *Timestamp {
 	return c.latestEthTimestamp
 }
