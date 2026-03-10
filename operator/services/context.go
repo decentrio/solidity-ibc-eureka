@@ -32,6 +32,7 @@ type Context struct {
 	misbehaviour *common.Address
 	updateClient *common.Address
 	roleManager  *common.Address
+	ics26Router  *common.Address
 	ics07Client  *common.Address
 }
 
@@ -87,13 +88,15 @@ func (c *Context) EthClientID() string {
 	return c.ethClientID
 }
 
-func (c *Context) SetAddresses(verifier, membership, misbehaviour, updateClient, roleManager string) {
+func (c *Context) SetAddresses(ics26Router, verifier, membership, misbehaviour, updateClient, roleManager string) {
+	ics26RouterAddr := common.HexToAddress(ics26Router)
 	verifierAddr := common.HexToAddress(verifier)
 	membershipAddr := common.HexToAddress(membership)
 	misbehaviourAddr := common.HexToAddress(misbehaviour)
 	updateClientAddr := common.HexToAddress(updateClient)
 	roleManagerAddr := common.HexToAddress(roleManager)
 
+	c.ics26Router = &ics26RouterAddr
 	c.verifier = &verifierAddr
 	c.membership = &membershipAddr
 	c.misbehaviour = &misbehaviourAddr
@@ -122,6 +125,10 @@ func (c *Context) UpdateClientContract() *common.Address {
 
 func (c *Context) RoleManagerAddress() *common.Address {
 	return c.roleManager
+}
+
+func (c *Context) RouterAddress() *common.Address {
+	return c.ics26Router
 }
 
 func (c *Context) StopClient() {

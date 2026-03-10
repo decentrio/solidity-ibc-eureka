@@ -6,11 +6,13 @@ import (
 	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type TransactionHandler interface {
 	CreateCosmosClientContract(ctx Context, clientState, consensusHash []byte) error
+	CreateEthClient(ctx Context, clientState ibcexported.ClientState, consensusState ibcexported.ConsensusState) error
 	SendEthTx(ctx Context, msg any) error
 	SendCosmosTx(ctx Context, msg any) error
 	SendCosmosTxBatch(ctx Context, msgs []any) error
@@ -66,6 +68,10 @@ func (s *Services) StartLoop() {
 		panic(fmt.Errorf("failed to connect to client: %s: ", err.Error()))
 	}
 
+	ics26Router := os.Getenv("ICS26_ROUTER")
+	if ics26Router == "" {
+		panic(fmt.Errorf("ICS26_ROUTER environment variable is required in .env file"))
+	}
 	wrapVerifier := os.Getenv("WRAP_VERIFIER")
 	if wrapVerifier == "" {
 		panic(fmt.Errorf("WRAP_VERIFIER environment variable is required in .env file"))
@@ -89,7 +95,7 @@ func (s *Services) StartLoop() {
 	}
 
 	ctx := NewCtx(cosmosClient, ethClient)
-	ctx.SetAddresses(wrapVerifier, membership, misbehaviour, updateClient, roleManager)
+	ctx.SetAddresses(ics26Router, wrapVerifier, membership, misbehaviour, updateClient, roleManager)
 
 	// listen to new tx events on Eth
 	// add it to handler queue

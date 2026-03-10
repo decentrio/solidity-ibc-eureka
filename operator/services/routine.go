@@ -2,11 +2,13 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	updateclientContract "operator/bindings/UpdateClient"
 	operatorclient "operator/client"
+	"strconv"
 	"time"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -14,6 +16,8 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
+
+const ICS26_IBC_STORAGE_SLOT = "0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600"
 
 type Worker struct {
 	TxHandler TransactionHandler
@@ -130,6 +134,156 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 	return w.TxHandler.SendEthTx(ctx, msg)
 }
 
+func (w *Worker) CreateEthClient(ctx Context, checksum string) error {
+	beaconAPIURL := ctx.BeaconAPIURL()
+	if beaconAPIURL == "" {
+		return fmt.Errorf("beacon API URL is not configured")
+	}
+
+	genesis, err := operatorclient.GetBeaconGenesis(beaconAPIURL)
+	if err != nil {
+		return fmt.Errorf("failed to get light client genesis: %w", err)
+	}
+
+	spec, err := operatorclient.GetBeaconSpec(beaconAPIURL)
+	if err != nil {
+		return fmt.Errorf("failed to get light client spec: %w", err)
+	}
+	beaconBlock, err := operatorclient.GetBeaconBlock(beaconAPIURL, "finalized")
+	if err != nil {
+		return fmt.Errorf("failed to get beacon block: %w", err)
+	}
+
+	blockRoot, err := operatorclient.GetBeaconBlockRoot(beaconAPIURL, beaconBlock.Message.Slot)
+	if err != nil {
+		return fmt.Errorf("failed to get beacon block root: %w", err)
+	}
+
+	bootstrap, err := operatorclient.GetLightClientBootstrap(beaconAPIURL, blockRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get light client bootstrap: %w", err)
+	}
+
+	if bootstrap.Data.Header.Execution.BlockNumber != beaconBlock.Message.Body.ExecutionPayload.BlockNumber {
+		return fmt.Errorf("Light client bootstrap block number does not match execution block number")
+	}
+
+	chainId, err := ctx.EthClient().ChainID(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get eth chain id: %w", err)
+	}
+
+	forkParameters, err := spec.ToForkParameters()
+	if err != nil {
+		return fmt.Errorf("failed to get fork parameters: %w", err)
+	}
+
+	epochsPerSyncCommitteePeriod, err := strconv.ParseUint(spec.EpochsPerSyncCommitteePeriod, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	genesisTime, err := strconv.ParseUint(genesis.GenesisTime, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	blockNumber, err := strconv.ParseUint(bootstrap.Data.Header.Execution.BlockNumber, 10, 64)
+	if err != nil {
+		return err
+	}
+	slot, err := strconv.ParseUint(bootstrap.Data.Header.Beacon.Slot, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	syncCommitteeSize, err := strconv.ParseUint(spec.SyncCommitteeSize, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	secondsPerSlot, err := strconv.ParseUint(spec.SecondsPerSlot, 10, 64)
+	if err != nil {
+		return err
+	}
+	slotsPerEpoch, err := strconv.ParseUint(spec.SlotsPerEpoch, 10, 64)
+	if err != nil {
+		return err
+	}
+	clientState := operatorclient.EthereumClientState{
+		ChainID:                      chainId.Uint64(),
+		EpochsPerSyncCommitteePeriod: epochsPerSyncCommitteePeriod,
+		ForkParameters:               *forkParameters,
+		GenesisSlot:                  0,
+		GenesisTime:                  genesisTime,
+		GenesisValidatorsRoot:        genesis.GenesisValidatorsRoot,
+		IbcCommitmentSlot:            ICS26_IBC_STORAGE_SLOT,
+		IbcContractAddress:           ctx.RouterAddress().String(),
+		IsFrozen:                     false,
+		LatestExecutionBlockNumber:   blockNumber,
+		LatestSlot:                   slot,
+		MinSyncCommitteeParticipants: (syncCommitteeSize + 2) / 3,
+		SecondsPerSlot:               secondsPerSlot,
+		SlotsPerEpoch:                slotsPerEpoch,
+		SyncCommitteeSize:            syncCommitteeSize,
+	}
+	clientStateBz, err := json.Marshal(clientState)
+	if err != nil {
+		return fmt.Errorf("error serializing client state: %w", err)
+	}
+
+	checksumBz, err := hex.DecodeString(checksum)
+	if err != nil {
+		return fmt.Errorf("error parsing checksum: %w", err)
+	}
+	wasmClientState := ibcwasmtypes.ClientState{
+		Data:     clientStateBz,
+		Checksum: checksumBz,
+		LatestHeight: clienttypes.Height{
+			RevisionNumber: 0,
+			RevisionHeight: clientState.LatestSlot,
+		},
+	}
+
+	timestamp, err := strconv.ParseUint(bootstrap.Data.Header.Execution.Timestamp, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	currentSyncCommittee, err := bootstrap.Data.CurrentSyncCommittee.ToSummarizedSyncCommittee()
+	if err != nil {
+		return fmt.Errorf("failed to hash pubkeys for CurrentSyncCommittee: %w", err)
+	}
+
+	latestPeriod := clientState.ComputeSyncCommitteePeriodAtSlot(clientState.LatestSlot)
+	lightClientUpdates, err := operatorclient.GetLightClientUpdates(ctx.BeaconAPIURL(), latestPeriod, 1)
+	if err != nil {
+		return fmt.Errorf("failed to get light client updates: %w", err)
+	}
+
+	nextSyncCommittee, err := lightClientUpdates[0].NextSyncCommittee.ToSummarizedSyncCommittee()
+	if err != nil {
+		return fmt.Errorf("failed to hash pubkeys for NextSyncCommittee: %w", err)
+	}
+
+	consensusState := operatorclient.EthereumConsensusState{
+		Slot:                 clientState.LatestSlot,
+		StateRoot:            bootstrap.Data.Header.Execution.StateRoot,
+		Timestamp:            timestamp,
+		CurrentSyncCommittee: *currentSyncCommittee,
+		NextSyncCommittee:    nextSyncCommittee,
+	}
+	consensusStateBz, err := json.Marshal(consensusState)
+	if err != nil {
+		return fmt.Errorf("error serializing consensus state: %w", err)
+	}
+
+	wasmConsensusState := ibcwasmtypes.ConsensusState{
+		Data: consensusStateBz,
+	}
+
+	return w.TxHandler.CreateEthClient(ctx, &wasmClientState, &wasmConsensusState)
+}
 func (w *Worker) UpdateEthClient(ctx Context) error {
 	beaconAPIURL := ctx.BeaconAPIURL()
 	if beaconAPIURL == "" {

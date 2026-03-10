@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	operatortclient "operator/client"
+	operatorclient "operator/client"
 	"operator/services"
 	"operator/transaction"
 	"os"
@@ -157,7 +157,7 @@ func main() {
 	}
 	fmt.Println("cfg: ", cfg)
 
-	ethRpcEndpoint := "http://127.0.0.1:62181"
+	ethRpcEndpoint := "http://127.0.0.1:52557"
 	ethClient, err := ethclient.Dial(ethRpcEndpoint)
 	if err != nil {
 		panic(fmt.Errorf("failed to connect to client: %s: ", err.Error()))
@@ -173,15 +173,19 @@ func main() {
 		&transaction.Handler{},
 	}
 
-	ctx := services.NewCtx(cosmosClient, ethClient)
-	ctx.SetAddresses(cfg.WrapperVerifier, cfg.Membership, cfg.Misbehaviour, cfg.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
+	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, "http://127.0.0.1:52561", "")
+	ctx.SetAddresses(cfg.ICS26Address, cfg.WrapperVerifier, cfg.Membership, cfg.Misbehaviour, cfg.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
 
-	unbondingPeriod, err := operatortclient.GetUnbondingTime(cosmosClient)
+	unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
 	if err != nil {
 		panic(fmt.Errorf("failed to fetch unbonding time client: %w", err))
 	}
 	trustingPeriod := 2 * uint32(unbondingPeriod) / 3
 	err = worker.CreateCosmosClient(ctx, "groth16", trustingPeriod, 0, "1/3")
+	if err != nil {
+		panic(fmt.Errorf("create client err: %w", err))
+	}
+	err = worker.CreateEthClient(ctx, "")
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
 	}
