@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	routerContract "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateclient "operator/bindings/UpdateClient"
 	services "operator/services"
@@ -26,12 +27,12 @@ import (
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/gogoproto/proto"
+	ibcwasmtypes "github.com/cosmos/ibc-go/modules/light-clients/08-wasm/v10/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	exported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -95,6 +96,26 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 	fmt.Println("deployed successful, tx: ", tx)
 	fmt.Println("ICS07 Tendermint Address: ", address.String())
 	ctx.SetClient(address)
+
+	ics26Router, err := routerContract.NewContractICS26Router(*ctx.RouterContract(), ctx.EthClient())
+	if err != nil {
+		return err
+	}
+
+	tx, err = ics26Router.AddClient(
+		auth,
+		"cosmoshub-1",
+		routerContract.IICS02ClientMsgsCounterpartyInfo{
+			ClientId:     "08-wasm-0",
+			MerklePrefix: [][]byte{[]byte(exported.StoreKey), []byte("")},
+		},
+		*ctx.ClientContract(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to deploy ics07 contract: %w", err)
+	}
+
 	return nil
 }
 
@@ -137,14 +158,8 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	auth.GasLimit = uint64(300000) // in units
 	auth.GasPrice = gasPrice
 
-	hexAddress := os.Getenv("CONTRACT_ADDRESS")
-	if hexAddress == "" {
-		return fmt.Errorf("CONTRACT_ADDRESS environment variable is required in .env file")
-	}
-
-	tendermintAddr := common.HexToAddress(hexAddress)
 	ics07Tendermint, err := tendermintContract.NewContractSP1ICS07Tendermint(
-		tendermintAddr,
+		*ctx.ClientContract(),
 		ctx.EthClient(),
 	)
 	if err != nil {
@@ -245,6 +260,8 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 	cryptocodec.RegisterInterfaces(interfaceRegistry)
 	authtypes.RegisterInterfaces(interfaceRegistry)
 	channeltypesv2.RegisterInterfaces(interfaceRegistry)
+	clienttypes.RegisterInterfaces(interfaceRegistry)
+	ibcwasmtypes.RegisterInterfaces(interfaceRegistry)
 	cdc := codec.NewProtoCodec(interfaceRegistry)
 	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
 

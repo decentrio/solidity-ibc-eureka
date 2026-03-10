@@ -127,8 +127,12 @@ func (c *Context) RoleManagerAddress() *common.Address {
 	return c.roleManager
 }
 
-func (c *Context) RouterAddress() *common.Address {
+func (c *Context) RouterContract() *common.Address {
 	return c.ics26Router
+}
+
+func (c *Context) ClientContract() *common.Address {
+	return c.ics07Client
 }
 
 func (c *Context) StopClient() {

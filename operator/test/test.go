@@ -185,7 +185,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
 	}
-	err = worker.CreateEthClient(ctx, "")
+	err = worker.CreateEthClient(ctx, "0xc6d93045091f05f6c056ca8fa583126902967b4b829085042529d279c188391c")
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
 	}

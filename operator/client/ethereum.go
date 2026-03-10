@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cometbft/cometbft/crypto/merkle"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
@@ -70,7 +71,8 @@ type SyncCommittee struct {
 func (sc *SyncCommittee) ToSummarizedSyncCommittee() (*SummarizedSyncCommittee, error) {
 	pks := [][]byte{}
 	for _, pk := range sc.Pubkeys {
-		pkBytes, err := hex.DecodeString(pk)
+		pkTrimmed := strings.TrimPrefix(pk, "0x")
+		pkBytes, err := hex.DecodeString(pkTrimmed)
 		if err != nil {
 			return nil, err
 		}

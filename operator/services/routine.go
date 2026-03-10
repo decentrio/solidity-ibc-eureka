@@ -9,6 +9,7 @@ import (
 	updateclientContract "operator/bindings/UpdateClient"
 	operatorclient "operator/client"
 	"strconv"
+	"strings"
 	"time"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -218,7 +219,7 @@ func (w *Worker) CreateEthClient(ctx Context, checksum string) error {
 		GenesisTime:                  genesisTime,
 		GenesisValidatorsRoot:        genesis.GenesisValidatorsRoot,
 		IbcCommitmentSlot:            ICS26_IBC_STORAGE_SLOT,
-		IbcContractAddress:           ctx.RouterAddress().String(),
+		IbcContractAddress:           ctx.RouterContract().String(),
 		IsFrozen:                     false,
 		LatestExecutionBlockNumber:   blockNumber,
 		LatestSlot:                   slot,
@@ -231,8 +232,8 @@ func (w *Worker) CreateEthClient(ctx Context, checksum string) error {
 	if err != nil {
 		return fmt.Errorf("error serializing client state: %w", err)
 	}
-
-	checksumBz, err := hex.DecodeString(checksum)
+	checksumTrimmed := strings.TrimPrefix(checksum, "0x")
+	checksumBz, err := hex.DecodeString(checksumTrimmed)
 	if err != nil {
 		return fmt.Errorf("error parsing checksum: %w", err)
 	}
