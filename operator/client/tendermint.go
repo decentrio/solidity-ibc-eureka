@@ -276,6 +276,15 @@ func GetUnbondingTime(client *rpchttp.HTTP) (float64, error) {
 	return params.Params.UnbondingTime.Seconds(), nil
 }
 
+func GetLatestLightBlock(client *rpchttp.HTTP) (*LightBlock, error) {
+	status, err := client.Status(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	return GetLightBlock(client, status.SyncInfo.LatestBlockHeight)
+}
+
 func GetLightBlock(client *rpchttp.HTTP, height int64) (*LightBlock, error) {
 	status, err := client.Status(context.Background())
 	if err != nil {

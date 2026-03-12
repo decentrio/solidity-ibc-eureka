@@ -4,49 +4,29 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log"
-	"math/big"
 	"os"
-	"strings"
 
 	contractICS26Router "operator/bindings/ICS26Router"
-	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	"operator/services"
-	"operator/utils"
 
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 )
-
-// read abi json file once in runtime
-var tendermintAbiJson []byte
-var initErr error
-
-func init() {
-	tendermintAbiJson, initErr = os.ReadFile("../../abi/SP1ICS07Tendermint.json")
-	if initErr != nil {
-		log.Fatal(initErr)
-	}
-}
 
 const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgTransfer'"
 const EVENT_SEND_PACKET_FIELD = "send_packet.encoded_packet_hex"
 const EVENT_TX_HASH_FIELD = "tx.hash"
 
 type Subscriber struct {
-	txHandler services.TransactionHandler
 }
 
-func NewSubscriber(txHandler services.TransactionHandler) *Subscriber {
-	return &Subscriber{
-		txHandler,
-	}
+func NewSubscriber() *Subscriber {
+	return &Subscriber{}
 }
 
-func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
+func (s *Subscriber) SubscribeCosmos(ctx services.Context, batchBuilder *services.BatchBuilder) {
 	sub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_SEND_PACKET_EVENT)
 	if err != nil {
 		ctx.Logger.Println(err.Error())
@@ -58,18 +38,6 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 			// handle event
 			sendPacketEvent := e.Events[EVENT_SEND_PACKET_FIELD]
 			if sendPacketEvent == nil {
-				continue
-			}
-
-			txHashStr := e.Events[EVENT_TX_HASH_FIELD]
-			if txHashStr == nil {
-				ctx.Logger.Println(fmt.Errorf("Invalid tx hash"))
-				continue
-			}
-			txHash, err := hex.DecodeString(txHashStr[0])
-			if err != nil {
-				// TODO handle log here
-				ctx.Logger.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
 				continue
 			}
 
@@ -89,85 +57,9 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context) {
 				continue
 			}
 
-			txResp, err := ctx.CosmosClient().Tx(context.Background(), txHash, true)
-			if err != nil {
-				// TODO handle log here
-				ctx.Logger.Println(fmt.Errorf("Failed to fetch tx from tx hash: %s", err.Error()))
-				continue
-			}
-
-			revisionHeight := int64(ctx.LatestCosmosTimestamp().LatestUpdateHeight)
-
-			// get trusted block
-			trustedBlockResp, err := ctx.CosmosClient().Block(context.Background(), &revisionHeight)
-			if err != nil {
-				// TODO handle log here
-				ctx.Logger.Println(fmt.Errorf("Failed to fetch block from block height %v: %s", txResp.Height, err.Error()))
-				continue
-			}
-
-			// target height are the latest block height
-			value, merkleProof, err := utils.ProvePath(ctx.CosmosClient(), txResp.Proof.Proof.Aunts, uint64(txResp.Height))
-
-			membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
-				Height: tendermintContract.IICS02ClientMsgsHeight{
-					RevisionHeight: uint64(txResp.Height),
-					RevisionNumber: 0,
-				},
-				KvPairs: []tendermintContract.IMembershipMsgsKVPair{
-					{
-						Path:  txResp.Proof.Proof.Aunts,
-						Value: utils.BytesToBytes32(value),
-					},
-				},
-				MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
-					*merkleProof,
-				},
-				// current appHash
-				AppHash: utils.BytesToBytes32(trustedBlockResp.Block.AppHash),
-				// trusted consensus from revision height block
-				TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-					Timestamp:          big.NewInt(trustedBlockResp.Block.Header.Time.Unix()),
-					Root:               utils.BytesToBytes32(trustedBlockResp.Block.Header.ConsensusHash),
-					NextValidatorsHash: utils.BytesToBytes32(trustedBlockResp.Block.Header.NextValidatorsHash),
-				},
-				MembershipType: 1,
-			}
-
-			parsedABI, err := abi.JSON(strings.NewReader(string(tendermintAbiJson)))
-			if err != nil {
-				ctx.Logger.Println(fmt.Errorf("Failed to read abi json file: %s", err.Error()))
-			}
-
-			calldata, err := parsedABI.Pack("verifyMembership", membershipMsg)
-			if err != nil {
-				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
-			}
-
-			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Payloads))
-			for _, p := range packet.Payloads {
-				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
-					SourcePort: p.SourcePort,
-					DestPort:   p.DestinationPort,
-					Version:    p.Version,
-					Encoding:   p.Encoding,
-					Value:      p.Value,
-				})
-			}
-
-			msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
-				Packet: contractICS26Router.IICS26RouterMsgsPacket{
-					Sequence:         packet.Sequence,
-					SourceClient:     packet.SourceClient,
-					DestClient:       packet.DestinationClient,
-					TimeoutTimestamp: packet.TimeoutTimestamp,
-					Payloads:         payloads,
-				},
-				MembershipMsg: calldata,
-			}
-
-			// try send recv packet msg to ethereum
-			s.txHandler.SendEthTx(ctx, msgRecvPacket)
+			batchBuilder.InsertPacket(services.Packet{
+				Packet: &packet,
+			})
 		}
 	}
 }

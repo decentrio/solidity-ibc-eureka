@@ -3,7 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
+	"encoding/binary"
 	"fmt"
 
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
@@ -12,13 +12,11 @@ import (
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
+	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	ics23 "github.com/cosmos/ics23/go"
 )
 
 func ProvePath(client *http.HTTP, path [][]byte, targetHeight uint64) ([]byte, *tendermintContract.IMembershipMsgsMerkleProof, error) {
-	query := fmt.Sprintf("store/%s/key", string(path[0]))
-	fmt.Println(query)
-	fmt.Println("data: ", hex.EncodeToString(bytes.Join(path[1:], nil)))
 	abciResp, err := client.ABCIQueryWithOptions(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil), rpcclient.ABCIQueryOptions{
 		Height: 0,
 		Prove:  true,
@@ -26,9 +24,9 @@ func ProvePath(client *http.HTTP, path [][]byte, targetHeight uint64) ([]byte, *
 	if err != nil {
 		return nil, nil, err
 	}
-	// if abciResp.Response.Height+1 != int64(targetHeight) {
-	// 	return nil, nil, fmt.Errorf("invalid proof height, expected %v, got %v", targetHeight-1, abciResp.Response.Height)
-	// }
+	if abciResp.Response.Height+1 != int64(targetHeight) {
+		return nil, nil, fmt.Errorf("invalid proof height, expected %v, got %v", targetHeight-1, abciResp.Response.Height)
+	}
 
 	if !bytes.Equal(abciResp.Response.Key, path[1]) {
 		return nil, nil, fmt.Errorf("invalid proof hkey mismatch, expected %v, got %v", abciResp.Response.Key, path[1])
@@ -94,4 +92,14 @@ func BytesToBytes32(data []byte) [32]byte {
 	var result [32]byte
 	copy(result[:], data)
 	return result
+}
+
+func IbcCommitmentPath(packet channeltypesv2.Packet) [][]byte {
+	sequenceBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(sequenceBytes, packet.Sequence)
+	path := []byte(packet.SourceClient)
+	path = append(path, []byte{1}...)
+	path = append(path, sequenceBytes...)
+
+	return [][]byte{[]byte("ibc"), path}
 }
