@@ -218,13 +218,8 @@ contract ICS26Router is
         bytes32 commitmentBz = ICS24Host.packetAcknowledgementCommitmentBytes32(acks);
 
         // verify the packet acknowledgement
-        // ILightClientMsgs.MsgVerifyMembership memory membershipMsg = ILightClientMsgs.MsgVerifyMembership({
-        //     proof: msg_.proofAcked,
-        //     proofHeight: msg_.proofHeight,
-        //     path: ICS24Host.prefixedPath(cInfo.merklePrefix, commitmentPath),
-        //     value: abi.encodePacked(commitmentBz)
-        // });
-        // getClient(msg_.packet.sourceClient).verifyMembership(membershipMsg);
+        ILightClientMsgs.MsgVerifyMembership memory membershipMsg = abi.decode(msg_.membershipMsg, (ILightClientMsgs.MsgVerifyMembership));
+        getClient(msg_.packet.sourceClient).verifyMembership(membershipMsg);
 
         // ackPacket will no-op if the packet commitment does not exist
         // This no-op check must happen after the membership verification for proofs to be cached
@@ -262,16 +257,12 @@ contract ICS26Router is
 
         bytes memory receiptPath =
             ICS24Host.packetReceiptCommitmentPathCalldata(msg_.packet.destClient, msg_.packet.sequence);
-        // ILightClientMsgs.MsgVerifyNonMembership memory nonMembershipMsg = ILightClientMsgs.MsgVerifyNonMembership({
-        //     proof: msg_.proofTimeout,
-        //     proofHeight: msg_.proofHeight,
-        //     path: ICS24Host.prefixedPath(cInfo.merklePrefix, receiptPath)
-        // });
-        // uint256 counterpartyTimestamp = getClient(msg_.packet.sourceClient).verifyNonMembership(nonMembershipMsg);
-        // require(
-        //     counterpartyTimestamp >= msg_.packet.timeoutTimestamp,
-        //     IBCInvalidTimeoutTimestamp(msg_.packet.timeoutTimestamp, counterpartyTimestamp)
-        // );
+        ILightClientMsgs.MsgVerifyNonMembership memory nonMembershipMsg = abi.decode(msg_.nonMembershipMsg, (ILightClientMsgs.MsgVerifyNonMembership));
+        uint256 counterpartyTimestamp = getClient(msg_.packet.sourceClient).verifyNonMembership(nonMembershipMsg);
+        require(
+            counterpartyTimestamp >= msg_.packet.timeoutTimestamp,
+            IBCInvalidTimeoutTimestamp(msg_.packet.timeoutTimestamp, counterpartyTimestamp)
+        );
 
         // timeoutPacket will no-op if the packet commitment does not exist
         // This no-op check must happen after the membership verification for proofs to be cached
