@@ -33,54 +33,43 @@ contract WrapperVerifier is IVerifier {
     address constant MODEXP_PRECOMPILE =
         0x0000000000000000000000000000000000000005;
 
-    /// @notice Total public inputs: 6 field elements x 4 limbs = 24
-    /// Layout: R.X(4), R.Y(4), S(4), Hash(4), A.X(4), A.Y(4)
-    uint256 constant TOTAL_PUBLIC_INPUTS = 24;
-
-    /// @notice Mask for 64-bit limb extraction
-    uint256 constant LIMB_MASK = 0xFFFFFFFFFFFFFFFF;
-
     IGroth16Verifier public immutable GROTH16_VERFIER;
 
     constructor(IGroth16Verifier _groth16Verifier) {
         GROTH16_VERFIER = _groth16Verifier;
     }
 
-    /// @notice Verify an Ed25519 signature using a Groth16 ZK proof.
-    /// @dev Decompresses Ed25519 points to Weierstrass coordinates,
-    ///      computes H = SHA512(R || A || msg) reduced mod L,
-    ///      then constructs public inputs matching gnark's PreHashCircuit:
-    ///      [R.X(4), R.Y(4), S(4), Hash(4), A.X(4), A.Y(4)] = 24 inputs
-    ///      Each field element is split into 4 x 64-bit limbs (little-endian).
     function verifyProof(
         uint256[8] calldata proof,
         uint256[2] calldata commitments,
         uint256[2] calldata commitmentPok,
         bytes32[2] calldata signature,
         bytes32 pubkey,
-        bytes calldata message
+        bytes32 message
     ) external override returns (bool) {
+        bytes memory hashData = new bytes(96);
+        bytes32 R = signature[0];
+        assembly ("memory-safe") {
+            mstore(add(hashData, 32), R)
+            mstore(add(hashData, 64), pubkey)
+            mstore(add(hashData, 96), message)
+        }
+
+        uint256[2] memory hashResult = sha512(hashData);
+        uint256 H = red512Modq(hashResult);
         uint256 S = uint256(signature[1]);
-        (uint256 rX, uint256 rY) = decodePoint(uint256(signature[0]));
+        // to do: call verify contract
+        (uint256 rX, uint256 rY) = decodePoint(uint256(R));
         (uint256 aX, uint256 aY) = decodePoint(uint256(pubkey));
 
-        // Compute H = SHA512(R || A || msg) reduced mod L (Ed25519 scalar order)
-        uint256[2] memory hashResult = sha512(
-            abi.encodePacked(signature[0], pubkey, message)
-        );
-        uint256 H = red512Modq(hashResult);
-
-        // Build public inputs in gnark's order:
-        // Sig.R.X, Sig.R.Y, Sig.S, Hash, Pub.A.X, Pub.A.Y
-        uint256[TOTAL_PUBLIC_INPUTS] memory publicInputs;
+        uint256[24] memory publicInputs;
         uint256 offset = 0;
-
-        offset = _writeLimbs64LE(publicInputs, offset, rX);
-        offset = _writeLimbs64LE(publicInputs, offset, rY);
-        offset = _writeLimbs64LE(publicInputs, offset, S);
-        offset = _writeLimbs64LE(publicInputs, offset, H);
-        offset = _writeLimbs64LE(publicInputs, offset, aX);
-        _writeLimbs64LE(publicInputs, offset, aY);
+        offset = _writeLimbs(publicInputs, offset, rX);
+        offset = _writeLimbs(publicInputs, offset, rY);
+        offset = _writeLimbs(publicInputs, offset, S);
+        offset = _writeLimbs(publicInputs, offset, H);
+        offset = _writeLimbs(publicInputs, offset, aX);
+        offset = _writeLimbs(publicInputs, offset, aY);
 
         try
             GROTH16_VERFIER.verifyProof(
@@ -96,18 +85,15 @@ contract WrapperVerifier is IVerifier {
         }
     }
 
-    /// @notice Decompose a 256-bit value into 4 x 64-bit limbs (little-endian order).
-    /// @dev gnark stores emulated field elements as [limb0, limb1, limb2, limb3]
-    ///      where limb0 = bits[63:0], limb3 = bits[255:192].
-    function _writeLimbs64LE(
+    function _writeLimbs(
         uint256[24] memory out,
         uint256 offset,
         uint256 x
     ) internal pure returns (uint256) {
-        out[offset + 0] = x & LIMB_MASK;               // bits [63:0]
-        out[offset + 1] = (x >> 64) & LIMB_MASK;       // bits [127:64]
-        out[offset + 2] = (x >> 128) & LIMB_MASK;      // bits [191:128]
-        out[offset + 3] = (x >> 192) & LIMB_MASK;      // bits [255:192]
+        out[offset + 0] = (x >> 96) & 0xffffffff;
+        out[offset + 1] = (x >> 64) & 0xffffffff;
+        out[offset + 2] = (x >> 32) & 0xffffffff;
+        out[offset + 3] = x & 0xffffffff;
         return offset + 4;
     }
 

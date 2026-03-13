@@ -332,7 +332,7 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		CommitmentPok:         commitmentPokBigInt,
 		Signature:             signature,
 		ValidatorPubkey:       validatorPubkey,
-		VoteSignBytes:         valSig.SignBytes,
+		VoteSignBytes:         [32]byte(crypto.Keccak256(valSig.SignBytes)),
 	}
 
 	return latestLightBlock, w.txHandler.SendEthTx(ctx, msg)

@@ -19,7 +19,7 @@ interface IUpdateClientMsgs {
     /// @param commitmentPok The proof of knowledge for commitments (2 uint256s).
     /// @param signature The Ed25519 signature [R (32 bytes), S (32 bytes)] of the validator.
     /// @param validatorPubkey The Ed25519 public key of the validator (32 bytes compressed).
-    /// @param voteSignBytes The canonical vote sign bytes that were signed.
+    /// @param voteSignBytes The hash of canonical vote sign bytes (keccak256).
     struct MsgUpdateClient {
         IICS07TendermintMsgs.ClientState clientState;
         IICS07TendermintMsgs.ConsensusState trustedConsensusState;
@@ -30,7 +30,7 @@ interface IUpdateClientMsgs {
         uint256[2] commitmentPok;
         bytes32[2] signature;
         bytes32 validatorPubkey;
-        bytes voteSignBytes;
+        bytes32 voteSignBytes;
     }
 
     /// @notice The public value output for the sp1 update client program.

@@ -11,14 +11,14 @@ interface IVerifier {
     /// @param commitmentPok The proof of knowledge for commitments (2 uint256s)
     /// @param signature The Ed25519 signature: [R (32 bytes compressed), S (32 bytes scalar)]
     /// @param pubkey The Ed25519 public key (32 bytes compressed)
-    /// @param message The signed message (VoteSignBytes), padded to MAX_VOTE_MSG_LEN
+    /// @param message The signed message hash (bytes32)
     function verifyProof(
         uint256[8] calldata proof,
         uint256[2] calldata commitments,
         uint256[2] calldata commitmentPok,
         bytes32[2] calldata signature,
         bytes32 pubkey,
-        bytes calldata message
+        bytes32 message
     ) external returns (bool);
 }
 
