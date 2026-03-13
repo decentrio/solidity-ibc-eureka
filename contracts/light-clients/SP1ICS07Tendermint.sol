@@ -18,8 +18,8 @@ import { IMembership } from "../interfaces/IMembership.sol";
 import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
-import { IVerifier, IGroth16Verifier } from "../interfaces/IVerifier.sol";
-import {Groth16Verifier} from "../utils/Groth16Verifier.sol";
+import { IVerifier } from "../interfaces/IVerifier.sol";
+
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
 import { TransientSlot } from "@openzeppelin-contracts/utils/TransientSlot.sol";
@@ -38,7 +38,7 @@ contract SP1ICS07Tendermint is
     using TransientSlot for *;
 
     /// @inheritdoc ISP1ICS07Tendermint
-    IGroth16Verifier public immutable VERIFIER;
+    IVerifier public immutable VERIFIER;
     IMembership public immutable MEMBERSHIP;
     IMisbehaviour public immutable MISBEHAVIOUR;
     IUpdateClient public immutable UPDATE_CLIENT;
@@ -73,7 +73,7 @@ contract SP1ICS07Tendermint is
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
-        VERIFIER = Groth16Verifier(verifier);
+        VERIFIER = IVerifier(verifier);
         MEMBERSHIP = IMembership(membership_);
         MISBEHAVIOUR = IMisbehaviour(misbehaviour_);
         UPDATE_CLIENT = IUpdateClient(updateClient_);
@@ -135,7 +135,7 @@ contract SP1ICS07Tendermint is
         }
 
         // Verify Ed25519 signature proof via Groth16
-        bool proofValid = IVerifier(address(VERIFIER)).verifyProof(
+        bool proofValid = VERIFIER.verifyProof(
             msg_.proof,
             msg_.commitments,
             msg_.commitmentPok,
