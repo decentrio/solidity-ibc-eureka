@@ -7,6 +7,7 @@ import (
 	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -29,6 +30,15 @@ type Context struct {
 
 	// Ethereum light client configuration
 	ethClientID string
+
+	// Contract addresses
+	verifier     *common.Address
+	membership   *common.Address
+	misbehaviour *common.Address
+	updateClient *common.Address
+	roleManager  *common.Address
+	ics26Router  *common.Address
+	ics07Client  *common.Address
 }
 
 func NewCtx(cosmosClient *rpchttp.HTTP, ethClient *ethclient.Client) Context {
@@ -81,6 +91,54 @@ func (c *Context) BeaconAPIURL() string {
 
 func (c *Context) EthClientID() string {
 	return c.ethClientID
+}
+
+func (c *Context) SetAddresses(ics26Router, verifier, membership, misbehaviour, updateClient, roleManager string) {
+	ics26RouterAddr := common.HexToAddress(ics26Router)
+	verifierAddr := common.HexToAddress(verifier)
+	membershipAddr := common.HexToAddress(membership)
+	misbehaviourAddr := common.HexToAddress(misbehaviour)
+	updateClientAddr := common.HexToAddress(updateClient)
+	roleManagerAddr := common.HexToAddress(roleManager)
+
+	c.ics26Router = &ics26RouterAddr
+	c.verifier = &verifierAddr
+	c.membership = &membershipAddr
+	c.misbehaviour = &misbehaviourAddr
+	c.updateClient = &updateClientAddr
+	c.roleManager = &roleManagerAddr
+}
+
+func (c *Context) SetClient(client common.Address) {
+	c.ics07Client = &client
+}
+
+func (c *Context) VerifierContract() *common.Address {
+	return c.verifier
+}
+
+func (c *Context) MembershipContract() *common.Address {
+	return c.membership
+}
+
+func (c *Context) MisbehaviourContract() *common.Address {
+	return c.misbehaviour
+}
+
+func (c *Context) UpdateClientContract() *common.Address {
+	return c.updateClient
+}
+
+func (c *Context) RoleManagerAddress() *common.Address {
+	return c.roleManager
+}
+
+func (c *Context) RouterContract() *common.Address {
+	return c.ics26Router
+}
+
+func (c *Context) ClientContract() *common.Address {
+	return c.ics07Client
 }
 
 func (c *Context) StopClient() {

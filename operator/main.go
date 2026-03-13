@@ -104,7 +104,16 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				return fmt.Errorf("failed to get proof type from flag: %w", err)
 			}
 
-			genesis, err := tendermintClient.GetGenesis(trustedBlock, trustingPeriod, trustLevel, proofType)
+			rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+			if rpcEndpoint == "" {
+				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			}
+			rpcClient, err := rpchttp.New(rpcEndpoint, "/websocket")
+			if err != nil {
+				return fmt.Errorf("failed to create RPC client: %w", err)
+			}
+
+			genesis, err := tendermintClient.GetGenesis(rpcClient, trustedBlock, trustingPeriod, trustLevel, proofType)
 			if err != nil {
 				return fmt.Errorf("failed to get genesis: %w", err)
 			}
@@ -249,7 +258,7 @@ func MembershipCmd(logger *zap.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to get proof type from flag: %w", err)
 			}
-			genesis, err := tendermintClient.GetGenesis(trustedBlock, trustingPeriod, trustLevel, proofType)
+			genesis, err := tendermintClient.GetGenesis(tendermintRpcClient, trustedBlock, trustingPeriod, trustLevel, proofType)
 			if err != nil {
 				return fmt.Errorf("failed to get genesis: %w", err)
 			}

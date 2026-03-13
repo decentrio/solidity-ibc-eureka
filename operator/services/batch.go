@@ -8,7 +8,9 @@ import (
 )
 
 type Packet struct {
-	Packet *channeltypesv2.Packet
+	Packet    *channeltypesv2.Packet
+	FromEth   bool   // true if packet originated from Ethereum (Eth→Cosmos)
+	EthHeight uint64 // Ethereum block number where the packet was sent (only for Eth→Cosmos)
 }
 
 type BatchPackets struct {

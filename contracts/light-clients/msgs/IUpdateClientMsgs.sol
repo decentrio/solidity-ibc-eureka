@@ -10,6 +10,16 @@ import { IICS02ClientMsgs } from "../../msgs/IICS02ClientMsgs.sol";
 /// @notice Defines shared types for the update client program.
 interface IUpdateClientMsgs {
     /// @notice The message that is submitted to the updateClient function.
+    /// @param clientState The client state.
+    /// @param trustedConsensusState The trusted consensus state.
+    /// @param proposedHeader The proposed header with validator signatures.
+    /// @param time The current time in unix nanoseconds.
+    /// @param proof The Groth16 proof for Ed25519 signature verification (8 uint256s).
+    /// @param commitments The proof commitments (2 uint256s).
+    /// @param commitmentPok The proof of knowledge for commitments (2 uint256s).
+    /// @param signature The Ed25519 signature [R (32 bytes), S (32 bytes)] of the validator.
+    /// @param validatorPubkey The Ed25519 public key of the validator (32 bytes compressed).
+    /// @param voteSignBytes The canonical vote sign bytes that were signed.
     struct MsgUpdateClient {
         IICS07TendermintMsgs.ClientState clientState;
         IICS07TendermintMsgs.ConsensusState trustedConsensusState;
@@ -18,6 +28,9 @@ interface IUpdateClientMsgs {
         uint256[8] proof;
         uint256[2] commitments;
         uint256[2] commitmentPok;
+        bytes32[2] signature;
+        bytes32 validatorPubkey;
+        bytes voteSignBytes;
     }
 
     /// @notice The public value output for the sp1 update client program.

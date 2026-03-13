@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"os"
 
 	contractICS26Router "operator/bindings/ICS26Router"
@@ -64,8 +65,30 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context, batchBuilder *service
 	}
 }
 
+// ethPacketToCosmosPacket converts an Ethereum ICS26Router packet to a Cosmos IBC v2 packet
+func ethPacketToCosmosPacket(ethPacket contractICS26Router.IICS26RouterMsgsPacket, sequence *big.Int) channeltypesv2.Packet {
+	var payloads []channeltypesv2.Payload
+	for _, p := range ethPacket.Payloads {
+		payloads = append(payloads, channeltypesv2.Payload{
+			SourcePort:      p.SourcePort,
+			DestinationPort: p.DestPort,
+			Version:         p.Version,
+			Encoding:        p.Encoding,
+			Value:           p.Value,
+		})
+	}
+
+	return channeltypesv2.Packet{
+		Sequence:          sequence.Uint64(),
+		SourceClient:      ethPacket.SourceClient,
+		DestinationClient: ethPacket.DestClient,
+		TimeoutTimestamp:  ethPacket.TimeoutTimestamp,
+		Payloads:          payloads,
+	}
+}
+
 // SubscribeEth subscribes to Ethereum events from the ICS26Router contract
-func (s *Subscriber) SubscribeEth(ctx services.Context) {
+func (s *Subscriber) SubscribeEth(ctx services.Context, batchBuilder *services.BatchBuilder) {
 	// Get the ICS26Router contract address from environment variable
 	ics26RouterAddr := os.Getenv("ICS26_ROUTER_ADDRESS")
 	if ics26RouterAddr == "" {
@@ -130,9 +153,13 @@ func (s *Subscriber) SubscribeEth(ctx services.Context) {
 	for {
 		select {
 		case ev := <-sendPacketCh:
-			// TODO: handle SendPacket event
-			// This event is emitted when a packet is sent from Ethereum to Cosmos
 			ctx.Logger.Printf("SendPacket event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
+			cosmosPacket := ethPacketToCosmosPacket(ev.Packet, ev.Sequence)
+			batchBuilder.InsertPacket(services.Packet{
+				Packet:    &cosmosPacket,
+				FromEth:   true,
+				EthHeight: ev.Raw.BlockNumber,
+			})
 
 		case ev := <-writeAckCh:
 			// TODO: handle WriteAcknowledgement event

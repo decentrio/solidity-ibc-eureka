@@ -18,7 +18,7 @@ import { IMembership } from "../interfaces/IMembership.sol";
 import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
-import { IGroth16Verifier } from "../interfaces/IVerifier.sol";
+import { IVerifier, IGroth16Verifier } from "../interfaces/IVerifier.sol";
 import {Groth16Verifier} from "../utils/Groth16Verifier.sol";
 import { Paths } from "./utils/Paths.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
@@ -134,14 +134,16 @@ contract SP1ICS07Tendermint is
             return ILightClientMsgs.UpdateResult.NoOp;
         }
 
-        // TODO: take input to put in verifying proof
-        // uint256[8] calldata proof = msg_.proof;
-        // if (proof[4] == 0 && proof[5] == 0 && proof[6] == 0 && proof[7] == 0) {
-        //     uint256[4] memory compressedProof = [proof[0], proof[1], proof[2], proof[3]];
-        //     VERIFIER.verifyCompressedProof(compressedProof, input);
-        // } else {
-        //     VERIFIER.verifyProof(proof, input);
-        // }
+        // Verify Ed25519 signature proof via Groth16
+        bool proofValid = IVerifier(address(VERIFIER)).verifyProof(
+            msg_.proof,
+            msg_.commitments,
+            msg_.commitmentPok,
+            msg_.signature,
+            msg_.validatorPubkey,
+            msg_.voteSignBytes
+        );
+        require(proofValid, ProofVerificationFailed());
 
         return updateResult;
     }
@@ -261,40 +263,8 @@ contract SP1ICS07Tendermint is
         );
 
         IMembershipMsgs.MembershipOutput memory output =
-<<<<<<< HEAD
             MEMBERSHIP.membership(appHash, kvPairs, merkleProofs);
         _validateMembershipOutput(output.commitmentRoot, height.revisionHeight, trustedConsensusState);
-=======
-            abi.decode(proof.sp1Proof.publicValues, (IMembershipMsgs.MembershipOutput));
-        require(
-            output.kvPairs.length > 0 && output.kvPairs.length <= type(uint16).max,
-            LengthIsOutOfRange(output.kvPairs.length, 1, type(uint16).max)
-        );
-
-        {
-            // loop through the key-value pairs and validate them
-            bool found = false;
-            for (uint256 i = 0; i < output.kvPairs.length; ++i) {
-                if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
-                    continue;
-                }
-
-                bytes memory value = output.kvPairs[i].value;
-                require(
-                    value.length == kvValue.length && keccak256(value) == keccak256(kvValue),
-                    MembershipProofValueMismatch(kvValue, value)
-                );
-
-                found = true;
-                break;
-            }
-            require(found, MembershipProofKeyNotFound(kvPath));
-        }
-
-        _validateMembershipOutput(output.commitmentRoot, proofHeight.revisionHeight, proof.trustedConsensusState);
-
-        _verifySP1Proof(proof.sp1Proof);
->>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
 
         // We avoid the cost of caching for single kv pairs, as reusing the proof is not necessary
         if (output.kvPairs.length > 1) {
