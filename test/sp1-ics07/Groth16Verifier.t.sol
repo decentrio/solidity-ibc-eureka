@@ -5,7 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { IVerifier, IGroth16Verifier } from "../../contracts/interfaces/IVerifier.sol";
 import { WrapperVerifier } from "../../contracts/utils/WrapperVerifier.sol";
-import { Verifier } from "../../contracts/utils/Groth16Verifier.sol";
+import { Groth16Verifier } from "../../contracts/utils/Groth16Verifier.sol";
 
 struct Groth16Fixture {
     uint256[8] proof;
@@ -25,7 +25,7 @@ contract Groth16VerifierTest is Test {
 
     function setUp() public {
         // Deploy Groth16Verifier and WrapperVerifier
-        Verifier groth16Verifier = new Verifier();
+        Groth16Verifier groth16Verifier = new Groth16Verifier();
         wrapper = new WrapperVerifier(IGroth16Verifier(address(groth16Verifier)));
 
         // Load fixture
