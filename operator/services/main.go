@@ -36,6 +36,14 @@ type TransactionHandler interface {
 	SendCosmosTxBatch(ctx Context, msgs []any) error
 }
 
+type Prover interface {
+	GenerateProof(sig, pub, msg []byte) (
+		proof [8]*big.Int,
+		commitments [2]*big.Int,
+		commitmentPok [2]*big.Int,
+		err error,
+	)
+}
 type EventListener interface {
 	SubscribeCosmos(ctx Context, batchBuilder *BatchBuilder)
 	SubscribeEth(ctx Context)
@@ -55,13 +63,14 @@ type Services struct {
 	txHandler TransactionHandler
 }
 
-func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionHandler, ethConfig, cosmosConfig Config) *Services {
+func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionHandler, prover Prover, ethConfig, cosmosConfig Config) *Services {
 	return &Services{
 		listener:     eventListener,
 		ethConfig:    ethConfig,
 		cosmosConfig: cosmosConfig,
 		worker: &Worker{
 			txHandler,
+			prover,
 		},
 		BatchPackets: make(chan BatchPackets),
 		BatchBuilder: NewBatchBuidler(),

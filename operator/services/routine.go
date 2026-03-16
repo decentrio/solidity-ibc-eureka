@@ -22,11 +22,13 @@ const ICS26_IBC_STORAGE_SLOT = "0x1260944489272988d9df285149b5aa1b0f48f2136d6f41
 
 type Worker struct {
 	TxHandler TransactionHandler
+	Prover    Prover
 }
 
-func NewWorker(txHandler TransactionHandler) *Worker {
+func NewWorker(txHandler TransactionHandler, prover Prover) *Worker {
 	return &Worker{
 		txHandler,
+		prover,
 	}
 }
 
@@ -126,13 +128,33 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	proposedHeader := latestLightBlock.IntoHeader(*trustedLightBlock)
 
-	// TODO: generate proof
+	// TODO: proof for multiple sigs
+	untrustedHeaderCommit := latestLightBlock.SignedHeader.Commit
+	if untrustedHeaderCommit == nil {
+		return nil, fmt.Errorf("untrusted header commit is nil")
+	}
+	untrustedHeaderSigs := untrustedHeaderCommit.Signatures
 
+	sig := untrustedHeaderSigs[0]
+	trustedValidator := latestLightBlock.ValSet.Validators[0]
+	pub := trustedValidator.PubKey.Bytes()
+	sigData := sig.Signature
+	if len(sigData) != 64 {
+		return nil, fmt.Errorf("invalid signature length: %d", len(sigData))
+	}
+	voteMsg := untrustedHeaderCommit.VoteSignBytes(chainId, int32(0))
+	proof, commitments, commitmentPok, err := w.Prover.GenerateProof(sigData, pub, voteMsg)
+	if err != nil {
+		return nil, fmt.Errorf("error generating proof: %w", err)
+	}
 	msg := updateclientContract.IUpdateClientMsgsMsgUpdateClient{
 		ClientState:           clientState,
 		TrustedConsensusState: consensusState,
 		Time:                  big.NewInt(time.Now().Unix()),
 		ProposedHeader:        proposedHeader,
+		Proof:                 proof,
+		Commitments:           commitments,
+		CommitmentPok:         commitmentPok,
 	}
 
 	return latestLightBlock, w.TxHandler.SendEthTx(ctx, msg)
@@ -276,7 +298,9 @@ func (w *Worker) CreateEthClient(ctx Context, checksum string) error {
 		Timestamp:            timestamp,
 		CurrentSyncCommittee: *currentSyncCommittee,
 		NextSyncCommittee:    nextSyncCommittee,
+		StorageRoot:          "0x0000000000000000000000000000000000000000000000000000000000000000",
 	}
+	fmt.Println("consensusState: ", consensusState)
 	consensusStateBz, err := json.Marshal(consensusState)
 	if err != nil {
 		return fmt.Errorf("error serializing consensus state: %w", err)

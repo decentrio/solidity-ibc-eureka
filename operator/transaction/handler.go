@@ -13,6 +13,7 @@ import (
 	routerContract "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateclient "operator/bindings/UpdateClient"
+	operatorclient "operator/client"
 	services "operator/services"
 	utils "operator/utils"
 
@@ -101,6 +102,12 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 		return err
 	}
 
+	nonce, err = ctx.EthClient().PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+
 	tx, err = ics26Router.AddClient(
 		auth,
 		"cosmoshub-1",
@@ -119,9 +126,9 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 }
 
 func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
-	privKey := os.Getenv("PRIVATE_KEY")
+	privKey := os.Getenv("ETH_PRIVATE_KEY")
 	if privKey == "" {
-		return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
+		return fmt.Errorf("ETH_PRIVATE_KEY environment variable is required in .env file")
 	}
 	privateKey, err := keys.RestoreKey(privKey)
 	if err != nil {
@@ -167,15 +174,7 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 
 	switch msg := msg.(type) {
 	case updateclient.IUpdateClientMsgsMsgUpdateClient:
-		parsedABI, err := tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
-		if err != nil {
-			panic(err)
-		}
-
-		data, err := parsedABI.Pack(
-			"transfer",
-			msg,
-		)
+		data, err := operatorclient.EncodeUpdateClientMsg(msg)
 		if err != nil {
 			panic(err)
 		}
@@ -202,10 +201,6 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 }
 
 func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.ClientState, consensusState exported.ConsensusState) error {
-	msg, err := clienttypes.NewMsgCreateClient(clientState, consensusState, "")
-	if err != nil {
-		return err
-	}
 
 	// Get the private key from environment variable
 	privKeyHex := os.Getenv("COSMOS_PRIVATE_KEY")
@@ -221,6 +216,7 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 
 	privKey := secp256k1.PrivKey{Key: privKeyBytes}
 	signerAddr := sdk.AccAddress(privKey.PubKey().Address())
+	fmt.Println("signerAddr: ", signerAddr.String())
 
 	// Get chain configuration from environment
 	chainID := os.Getenv("COSMOS_CHAIN_ID")
@@ -241,7 +237,7 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 		feeDenom = "stake" // Default fee denom
 	}
 
-	feeAmount := int64(1000) // Default fee amount
+	feeAmount := int64(10000000) // Default fee amount
 	if feeStr := os.Getenv("COSMOS_FEE_AMOUNT"); feeStr != "" {
 		if _, err := fmt.Sscanf(feeStr, "%d", &feeAmount); err != nil {
 			return fmt.Errorf("failed to parse COSMOS_FEE_AMOUNT: %w", err)
@@ -263,6 +259,11 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 	ibcwasmtypes.RegisterInterfaces(interfaceRegistry)
 	cdc := codec.NewProtoCodec(interfaceRegistry)
 	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
+
+	msg, err := clienttypes.NewMsgCreateClient(clientState, consensusState, signerAddr.String())
+	if err != nil {
+		return err
+	}
 
 	// Build the transaction
 	txBuilder := txConfig.NewTxBuilder()
@@ -693,6 +694,7 @@ func (h *Handler) queryAccountInfo(svcCtx services.Context, address string) (uin
 
 	// Setup interface registry to decode the account
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
 	authtypes.RegisterInterfaces(interfaceRegistry)
 
 	// Decode the response

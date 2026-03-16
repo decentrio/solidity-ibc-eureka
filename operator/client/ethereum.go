@@ -41,6 +41,7 @@ type EthereumConsensusState struct {
 	Timestamp            uint64                   `json:"timestamp"`
 	CurrentSyncCommittee SummarizedSyncCommittee  `json:"current_sync_committee"`
 	NextSyncCommittee    *SummarizedSyncCommittee `json:"next_sync_committee"`
+	StorageRoot          string                   `json:"storage_root"`
 }
 
 type ForkParameters struct {
