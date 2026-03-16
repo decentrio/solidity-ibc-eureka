@@ -31,7 +31,6 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	exported "github.com/cosmos/ibc-go/v10/modules/core/exported"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -168,7 +167,7 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 
 	switch msg := msg.(type) {
 	case updateclient.IUpdateClientMsgsMsgUpdateClient:
-		parsedABI, err := abi.JSON(strings.NewReader("../../abi/SP1ICS07Tendermint.json"))
+		parsedABI, err := tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
 		if err != nil {
 			panic(err)
 		}

@@ -24,6 +24,14 @@ type CosmosToEthConfig struct {
 	UpdateClient    string `json:"update_client"`
 }
 
+type EthToCosmosConfig struct {
+	TmRpcUrl      string `json:"tm_rpc_url"`
+	ICS26Address  string `json:"ics26_address"`
+	EthRpcUrl     string `json:"eth_rpc_url"`
+	BeaconUrl     string `json:"eth_beacon_api_url"`
+	SignerAddress string `json:"signer_address"`
+}
+
 type Module struct {
 	Name     string          `json:"name"`
 	SrcChain string          `json:"src_chain"`
@@ -31,32 +39,56 @@ type Module struct {
 	Config   json.RawMessage `json:"config"`
 }
 
-type AppConfig struct {
-	Modules []Module `json:"modules"`
+type ServerConfig struct {
+	LogLevel string `json:"log_level"`
+	Address  string `json:"address"`
+	Port     uint64 `json:"port"`
 }
 
-func loadCosmosToEthConfig(configPath string) (*CosmosToEthConfig, error) {
+type AppJsonConfig struct {
+	SeverConfig ServerConfig `json:"server"`
+	Modules     []Module     `json:"modules"`
+}
+
+type AppConfig struct {
+	SeverConfig       ServerConfig
+	EthToCosmosConfig EthToCosmosConfig
+	CosmosToEthConfig CosmosToEthConfig
+}
+
+func loadConfig(configPath string) (*AppConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var appConfig AppConfig
+	var appConfig AppJsonConfig
 	if err := json.Unmarshal(data, &appConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	var c2eCfg CosmosToEthConfig
+	var e2cfg EthToCosmosConfig
 	for _, m := range appConfig.Modules {
+
 		if m.Name == "cosmos_to_eth" {
-			var cfg CosmosToEthConfig
-			if err := json.Unmarshal(m.Config, &cfg); err != nil {
+			fmt.Println("m.Config: ", string(m.Config))
+			if err := json.Unmarshal(m.Config, &c2eCfg); err != nil {
 				return nil, fmt.Errorf("failed to parse cosmos_to_eth config: %w", err)
 			}
-			return &cfg, nil
+		}
+		if m.Name == "eth_to_cosmos" {
+			if err := json.Unmarshal(m.Config, &e2cfg); err != nil {
+				return nil, fmt.Errorf("failed to parse eth_to_cosmos config: %w", err)
+			}
 		}
 	}
-
-	return nil, fmt.Errorf("cosmos_to_eth module not found in config")
+	
+	return &AppConfig{
+		SeverConfig:       appConfig.SeverConfig,
+		CosmosToEthConfig: c2eCfg,
+		EthToCosmosConfig: e2cfg,
+	}, nil
 }
 
 // type EurekaEvent struct {
@@ -151,19 +183,19 @@ func init() {
 // }
 
 func main() {
-	cfg, err := loadCosmosToEthConfig("./config.example.json")
+	cfg, err := loadConfig("./config.example.json")
 	if err != nil {
 		panic(fmt.Errorf("failed to load config: %w", err).Error())
 	}
 	fmt.Println("cfg: ", cfg)
 
-	ethRpcEndpoint := "http://127.0.0.1:52557"
+	ethRpcEndpoint := cfg.EthToCosmosConfig.EthRpcUrl
 	ethClient, err := ethclient.Dial(ethRpcEndpoint)
 	if err != nil {
 		panic(fmt.Errorf("failed to connect to client: %s: ", err.Error()))
 	}
 
-	cosmosRpcEndpoint := "http://127.0.0.1:26657"
+	cosmosRpcEndpoint := cfg.CosmosToEthConfig.TmRpcUrl
 	cosmosClient, err := rpchttp.New(cosmosRpcEndpoint, "/websocket")
 	if err != nil {
 		panic(fmt.Errorf("failed to create RPC client: %w", err))
@@ -173,8 +205,8 @@ func main() {
 		&transaction.Handler{},
 	}
 
-	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, "http://127.0.0.1:52561", "")
-	ctx.SetAddresses(cfg.ICS26Address, cfg.WrapperVerifier, cfg.Membership, cfg.Misbehaviour, cfg.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
+	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, cfg.EthToCosmosConfig.BeaconUrl, "")
+	ctx.SetAddresses(cfg.CosmosToEthConfig.ICS26Address, cfg.CosmosToEthConfig.WrapperVerifier, cfg.CosmosToEthConfig.Membership, cfg.CosmosToEthConfig.Misbehaviour, cfg.CosmosToEthConfig.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
 
 	unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
 	if err != nil {

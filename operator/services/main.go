@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"operator/utils"
 	"os"
-	"strings"
 	"time"
 
 	contractICS26Router "operator/bindings/ICS26Router"
@@ -19,11 +18,11 @@ import (
 )
 
 // read abi json file once in runtime
-var tendermintAbiJson []byte
+var tendermintAbiJson *abi.ABI
 var initErr error
 
 func init() {
-	tendermintAbiJson, initErr = os.ReadFile("../../abi/SP1ICS07Tendermint.json")
+	tendermintAbiJson, initErr = tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
 	if initErr != nil {
 		log.Fatal(initErr)
 	}
@@ -222,12 +221,7 @@ func (s *Services) StartLoop() {
 				MembershipType: 1,
 			}
 
-			parsedABI, err := abi.JSON(strings.NewReader(string(tendermintAbiJson)))
-			if err != nil {
-				ctx.Logger.Println(fmt.Errorf("Failed to read abi json file: %s", err.Error()))
-			}
-
-			calldata, err := parsedABI.Pack("verifyMembership", membershipMsg)
+			calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
 			}
