@@ -18,6 +18,7 @@ import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
 import { IVerifier } from "../interfaces/IVerifier.sol";
 import { Paths } from "./utils/Paths.sol";
+import { Encode } from "../utils/Encode.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
 import { TransientSlot } from "@openzeppelin-contracts/utils/TransientSlot.sol";
 import { AccessControl } from "@openzeppelin-contracts/access/AccessControl.sol";
@@ -145,14 +146,26 @@ contract SP1ICS07Tendermint is
             return ILightClientMsgs.UpdateResult.NoOp;
         }
 
-        // TODO: take input to put in verifying proof
-        // uint256[8] calldata proof = msg_.proof;
-        // if (proof[4] == 0 && proof[5] == 0 && proof[6] == 0 && proof[7] == 0) {
-        //     uint256[4] memory compressedProof = [proof[0], proof[1], proof[2], proof[3]];
-        //     VERIFIER.verifyCompressedProof(compressedProof, input);
-        // } else {
-        //     VERIFIER.verifyProof(proof, input);
-        // }
+        // TODO: multi signatures
+	    string memory chainId = msg_.proposedHeader.signedHeader.header.chainId;
+        IICS07TendermintMsgs.BlockCommit memory untrustedHeaderCommit = msg_.proposedHeader.signedHeader.commit;
+        bytes32 pubkey = msg_.proposedHeader.validatorSet.validators[0].pubKey;
+        bytes memory sig = untrustedHeaderCommit.commitSigs[0].data.signature;
+        require(sig.length == 64, "invalid signature length");
+        bytes32[2] memory signature;
+        assembly {
+            mstore(signature, mload(add(sig, 32)))
+            mstore(add(signature, 32), mload(add(sig, 64)))
+        }
+        bool proofValid = VERIFIER.verifyProof(
+            msg_.proof,
+            msg_.commitments,
+            msg_.commitmentPok,
+            signature,
+            pubkey,
+            Encode.voteSignBytes(untrustedHeaderCommit, chainId, 0)
+        );
+        require(proofValid, ProofVerificationFailed());
 
         return updateResult;
     }

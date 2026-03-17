@@ -151,4 +151,7 @@ interface ISP1ICS07TendermintErrors {
     error InsufficientTrustingPeriod(uint128 durationSinceConsensusState, uint128 trustingPeriod);
 
     error InvalidConsensusStateTimestamp(uint128 timestamp);
+
+    /// @notice Returned when the Groth16 proof verification fails.
+    error ProofVerificationFailed();
 }

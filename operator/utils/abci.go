@@ -17,8 +17,12 @@ import (
 )
 
 func ProvePath(client *http.HTTP, path [][]byte, targetHeight uint64) ([]byte, *tendermintContract.IMembershipMsgsMerkleProof, error) {
+	height := int64(0)
+	if targetHeight != 0 {
+		height = int64(targetHeight) - 1
+	}
 	abciResp, err := client.ABCIQueryWithOptions(context.Background(), fmt.Sprintf("store/%s/key", string(path[0])), bytes.Join(path[1:], nil), rpcclient.ABCIQueryOptions{
-		Height: 0,
+		Height: height,
 		Prove:  true,
 	})
 	if err != nil {
