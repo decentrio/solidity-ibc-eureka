@@ -29,9 +29,7 @@ type Context struct {
 	beaconAPIURL string
 
 	// Ethereum light client configuration
-	ethClientID string
-
-	// Contract addresses
+	ethClientID  string
 	verifier     *common.Address
 	membership   *common.Address
 	misbehaviour *common.Address
@@ -112,7 +110,6 @@ func (c *Context) SetAddresses(ics26Router, verifier, membership, misbehaviour, 
 func (c *Context) SetClient(client common.Address) {
 	c.ics07Client = &client
 }
-
 func (c *Context) VerifierContract() *common.Address {
 	return c.verifier
 }

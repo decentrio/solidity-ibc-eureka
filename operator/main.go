@@ -86,7 +86,15 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("error loading .env file: %v", err)
 			}
-
+			// Read RPC endpoint from environment variable
+			tendermintRpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
+			if tendermintRpcEndpoint == "" {
+				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
+			}
+			tendermintRpcClient, err := rpchttp.New(tendermintRpcEndpoint, "/websocket")
+			if err != nil {
+				return fmt.Errorf("failed to create RPC client: %w", err)
+			}
 			trustedBlock, err := cmd.Flags().GetInt64(flagTrustedBlock)
 			if err != nil {
 				return fmt.Errorf("failed to get trusted block: %w", err)
@@ -104,16 +112,7 @@ func Genesis(logger *zap.Logger) *cobra.Command {
 				return fmt.Errorf("failed to get proof type from flag: %w", err)
 			}
 
-			rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
-			if rpcEndpoint == "" {
-				return fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
-			}
-			rpcClient, err := rpchttp.New(rpcEndpoint, "/websocket")
-			if err != nil {
-				return fmt.Errorf("failed to create RPC client: %w", err)
-			}
-
-			genesis, err := tendermintClient.GetGenesis(rpcClient, trustedBlock, trustingPeriod, trustLevel, proofType)
+			genesis, err := tendermintClient.GetGenesis(tendermintRpcClient, trustedBlock, trustingPeriod, trustLevel, proofType)
 			if err != nil {
 				return fmt.Errorf("failed to get genesis: %w", err)
 			}

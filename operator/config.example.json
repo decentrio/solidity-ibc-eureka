@@ -11,12 +11,12 @@
       "dst_chain": "0x1",
       "config": {
         "tm_rpc_url": "http://127.0.0.1:26657",
-        "ics26_address": "0x9dc3b7c24965a90a8e2eacf48f4db47c0a5f7eb0",
-        "eth_rpc_url": "http://127.0.0.1:49607",
-        "wrapper_verifier": "0xb29db8a6b1c596b64f7e1dd5358d59db73648e17",
-        "membership": "0xd1ea1592b7927a2f0ee5f8567928df0cfa687c78",
-        "misbehaviour": "0x85cb33fc344275709c0c194bc7d1c5c32736c8b9",
-        "update_client": "0x2694cfcc47aabc5c042dea104b6ac37e9924a4b1"
+        "ics26_address": "0x63e6dde6763c3466c7b45be880f7ee5dc2ca3e25",
+        "eth_rpc_url": "http://127.0.0.1:52457",
+        "wrapper_verifier": "0x703848f4c85f18e3acd8196c8ec91eb0b7bd0797",
+        "membership": "0x0643d39d47cf0ea95dbea69bf11a7f8c4bc34968",
+        "misbehaviour": "0x8f0342a7060e76dfc7f6e9debfad9b9ec919952c",
+        "update_client": "0x9f9f5fd89ad648f2c000c954d8d9c87743243ec5"
       }
     },
     {
@@ -25,9 +25,9 @@
       "dst_chain": "test-ibc-eth",
       "config": {
         "tm_rpc_url": "http://127.0.0.1:26657",
-        "ics26_address": "0x9dc3b7c24965a90a8e2eacf48f4db47c0a5f7eb0",
-        "eth_rpc_url": "http://127.0.0.1:49607",
-        "eth_beacon_api_url": "http://127.0.0.1:49608",
+        "ics26_address": "0x63e6dde6763c3466c7b45be880f7ee5dc2ca3e25",
+        "eth_rpc_url": "http://127.0.0.1:52457",
+        "eth_beacon_api_url": "http://127.0.0.1:52461",
         "signer_address": "cosmos10d07y265gmmuvt4z0w9aw880jnsr700j6zn9kn"
       }
     }

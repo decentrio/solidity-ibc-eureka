@@ -1,16 +1,29 @@
 package main
 
 import (
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
+	contractICS26Router "operator/bindings/ICS26Router"
+	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	operatorclient "operator/client"
+	"operator/prover"
 	"operator/services"
+	"operator/subscriber"
 	"operator/transaction"
+	"operator/utils"
 	"os"
+	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	"github.com/cosmos/gogoproto/proto"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	"github.com/joho/godotenv"
 )
 
@@ -108,80 +121,113 @@ func init() {
 	}
 }
 
-// const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgTransfer'"
-// const EVENT_SEND_PACKET_FIELD = "send_packet.encoded_packet_hex"
-// const EVENT_TX_HASH_FIELD = "tx.hash"
+type Listener struct{}
 
-// func subscribeCosmos(logger *log.Logger, client *rpchttp.HTTP) {
-// 	sub, err := client.WSEvents.Subscribe(context.Background(), "", COMETBFT_SEND_PACKET_EVENT)
-// 	if err != nil {
-// 		logger.Println(err.Error())
-// 	}
+func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker) {
+	sub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", subscriber.COMETBFT_SEND_PACKET_EVENT)
+	if err != nil {
+		ctx.Logger.Println(err.Error())
+	}
+	for {
+		select {
+		case e := <-sub:
+			// handle event
+			sendPacketEvent := e.Events[subscriber.EVENT_SEND_PACKET_FIELD]
+			if sendPacketEvent == nil {
+				continue
+			}
 
-// 	for {
-// 		select {
-// 		case e := <-sub:
-// 			fmt.Println("events: ", e.Events)
-// 			// handle event
-// 			sendPacketEvent := e.Events[EVENT_SEND_PACKET_FIELD]
-// 			if sendPacketEvent == nil {
-// 				fmt.Println("sendPacketEvent is empty")
-// 				continue
-// 			}
-// 			// packetHex := e.Events[channeltypesv2.AttributeKeyEncodedPacketHex]
-// 			// fmt.Println("packetHex: ", packetHex)
+			packetEncodedStr := sendPacketEvent[0]
+			packetBytes, err := hex.DecodeString(packetEncodedStr)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to decode packet hex: %s", err.Error()))
+				continue
+			}
 
-// 			txHashStr := e.Events[EVENT_TX_HASH_FIELD]
-// 			if txHashStr == nil {
-// 				fmt.Println("txHashStr is empty")
-// 				continue
-// 			}
-// 			fmt.Println("txHashStr: ", txHashStr)
-// 			// txHash, err := hex.DecodeString(txHashStr[0])
-// 			// if err != nil {
-// 			// 	fmt.Println(fmt.Errorf("Failed to decode tx hash: %s", err.Error()))
-// 			// 	continue
-// 			// }
+			var packet channeltypesv2.Packet
+			err = proto.Unmarshal(packetBytes, &packet)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to unmarshal packet: %s", err.Error()))
+				continue
+			}
 
-// 			packetEncodedStr := sendPacketEvent[0]
-// 			packetBytes, err := hex.DecodeString(packetEncodedStr)
-// 			if err != nil {
-// 				fmt.Println(fmt.Errorf("Failed to decode packet hex: %s", err.Error()))
-// 				continue
-// 			}
+			latestEthTimestamp := ctx.LatestCosmosTimestamp()
+			latestLightBlock, err := worker.UpdateCosmosClient(ctx, "groth16", int64(latestEthTimestamp.LatestUpdateHeight), "2/3")
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to update cosmos light client: %s", err.Error()))
+				continue
+			}
+			latestEthTimestamp.LatestUpdateTime = time.Now()
+			latestEthTimestamp.LatestUpdateHeight = uint64(latestLightBlock.BlockHeight)
 
-// 			var packet channeltypesv2.Packet
-// 			err = proto.Unmarshal(packetBytes, &packet)
-// 			if err != nil {
-// 				fmt.Println(fmt.Errorf("Failed to unmarshal packet: %s", err.Error()))
-// 				continue
-// 			}
+			ibcPath := utils.IbcCommitmentPath(packet)
+			value, merkleProof, err := utils.ProvePath(ctx.CosmosClient(), ibcPath, uint64(latestLightBlock.BlockHeight))
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to prove path: %s", err.Error()))
+				continue
+			}
+			membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
+				Height: tendermintContract.IICS02ClientMsgsHeight{
+					RevisionHeight: uint64(latestLightBlock.BlockHeight),
+					RevisionNumber: 0,
+				},
+				KvPairs: []tendermintContract.IMembershipMsgsKVPair{
+					{
+						Path:  ibcPath,
+						Value: utils.BytesToBytes32(value),
+					},
+				},
+				MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
+					*merkleProof,
+				},
+				// current appHash
+				AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
+				// trusted consensus from revision height block
+				TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
+					Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+					Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+					NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
+				},
+				MembershipType: 1,
+			}
 
-// 			txHash, err := hex.DecodeString(txHashStr[0])
-// 			time.Sleep(time.Second)
-// 			txResp, err := client.Tx(context.Background(), txHash, true)
-// 			if err != nil {
-// 				fmt.Println(fmt.Errorf("Failed to fetch tx from tx hash: %s", err.Error()))
-// 				continue
-// 			}
-// 			fmt.Println("txResp: ", txResp)
+			tendermintAbiJson, err := tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
+			}
+			calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
+			}
 
-// 			revisionHeight := int64(txResp.Height)
+			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Payloads))
+			for _, p := range packet.Payloads {
+				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
+					SourcePort: p.SourcePort,
+					DestPort:   p.DestinationPort,
+					Version:    p.Version,
+					Encoding:   p.Encoding,
+					Value:      p.Value,
+				})
+			}
 
-// 			sequenceBytes := make([]byte, 8)
-// 			binary.BigEndian.PutUint64(sequenceBytes, packet.Sequence)
-// 			path := []byte(packet.SourceClient)
-// 			path = append(path, []byte{1}...)
-// 			path = append(path, sequenceBytes...)
-// 			// target height are the latest block height
-// 			_, merkleProof, err := utils.ProvePath(client, [][]byte{[]byte("ibc"), path}, uint64(revisionHeight))
+			msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
+				Packet: contractICS26Router.IICS26RouterMsgsPacket{
+					Sequence:         packet.Sequence,
+					SourceClient:     packet.SourceClient,
+					DestClient:       packet.DestinationClient,
+					TimeoutTimestamp: packet.TimeoutTimestamp,
+					Payloads:         payloads,
+				},
+				MembershipMsg: calldata,
+			}
 
-// 			fmt.Println(merkleProof)
-// 			fmt.Println(err)
-// 		}
-// 	}
-// }
-
+			worker.TxHandler.SendEthTx(ctx, msgRecvPacket)
+		}
+	}
+}
 func main() {
 	cfg, err := loadConfig("./config.example.json")
 	if err != nil {
@@ -201,10 +247,26 @@ func main() {
 		panic(fmt.Errorf("failed to create RPC client: %w", err))
 	}
 
-	worker := services.NewWorker(&transaction.Handler{}, nil)
+	prover, err := prover.NewProver("./prover/data/r1cs.bin", "./prover/data/pk.bin")
+	if err != nil {
+		panic(fmt.Errorf("failed reading prover key: %w", err))
+	}
+	worker := &services.Worker{
+		&transaction.Handler{},
+		prover,
+	}
 
 	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, cfg.EthToCosmosConfig.BeaconUrl, "")
 	ctx.SetAddresses(cfg.CosmosToEthConfig.ICS26Address, cfg.CosmosToEthConfig.WrapperVerifier, cfg.CosmosToEthConfig.Membership, cfg.CosmosToEthConfig.Misbehaviour, cfg.CosmosToEthConfig.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
+
+	ics07 := common.HexToAddress("0x6fDA176cb71b4f2b85c17E398b58803797f721e4")
+	ctx.SetClient(ics07)
+	err = ctx.CosmosClient().Start()
+	if err != nil {
+		panic(err)
+	}
+	defer ctx.CosmosClient().Stop()
+	listener := Listener{}
 
 	unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
 	if err != nil {
@@ -219,4 +281,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
 	}
+
+	listener.SubscribeCosmos(ctx, worker)
 }

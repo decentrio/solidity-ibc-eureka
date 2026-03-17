@@ -19,14 +19,41 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 )
 
-// Prover generates Groth16 proofs for Ed25519 signature verification.
-type Prover struct {
+type Fp25519 = emulated.Curve25519Fp
+type Fr25519 = emulated.Curve25519Fr
+
+type PreHashCircuit[Base, Scalars emulated.FieldParams] struct {
+	Sig eddsa.Signature[Base, Scalars] `gnark:",public"`
+	// Msg  emulated.Element[Scalars]      `gnark:",public"`
+	Hash emulated.Element[Scalars]      `gnark:",public"`
+	Pub  eddsa.PublicKey[Base, Scalars] `gnark:",public"`
+}
+
+func (c *PreHashCircuit[Base, Scalars]) Define(api frontend.API) error {
+
+	//A, _ := new(big.Int).SetString("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffec", 0)
+	//D, _ := new(big.Int).SetString("0x52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 0)
+	//Gx, _ := new(big.Int).SetString("0x216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a", 0)
+	//Gy, _ := new(big.Int).SetString("0x6666666666666666666666666666666666666666666666666666666666666658", 0)
+
+	config := eddsa.Config{
+		Hasher:  nil,
+		FromWei: false,
+	}
+
+	err := eddsa.Verify[Base, Scalars](api, c.Sig, c.Hash, c.Pub, config)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type EcipProver struct {
 	r1cs constraint.ConstraintSystem
 	pk   groth16.ProvingKey
 }
 
-// NewProver creates a new Prover by loading the pre-compiled R1CS and proving key.
-func NewProver(r1csPath, pkPath string) (*Prover, error) {
+func NewProver(r1csPath, pkPath string) (*EcipProver, error) {
 	r1csFile, err := os.Open(r1csPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open r1cs file: %w", err)
@@ -49,22 +76,13 @@ func NewProver(r1csPath, pkPath string) (*Prover, error) {
 		return nil, fmt.Errorf("failed to read proving key: %w", err)
 	}
 
-	return &Prover{
-		r1cs: r1cs,
-		pk:   pk,
+	return &EcipProver{
+		r1cs,
+		pk,
 	}, nil
 }
 
-// ProveSignature generates a Groth16 proof for a single Ed25519 signature.
-//
-// Parameters:
-//   - sig: 64-byte Ed25519 signature (R || S)
-//   - pub: 32-byte Ed25519 public key (compressed)
-//   - msg: the message that was signed (canonical vote sign bytes)
-//
-// The hash H = SHA512(R || A || msg) is computed off-chain and passed to the circuit.
-// Returns proof components ready for Solidity verification.
-func (p *Prover) ProveSignature(sig, pub, msg []byte) (
+func (p *EcipProver) GenerateProof(sig, pub, msg []byte) (
 	proof [8]*big.Int,
 	commitments [2]*big.Int,
 	commitmentPok [2]*big.Int,
@@ -153,56 +171,43 @@ func (p *Prover) ProveSignature(sig, pub, msg []byte) (
 	return ProofToBigInts(gnarkProof)
 }
 
-// ProofToBigInts converts a gnark Groth16 BN254 proof to uint256 arrays for Solidity.
-//
-// Returns:
-//   - proof[8]: [Ar.X, Ar.Y, Bs.X.A0, Bs.X.A1, Bs.Y.A0, Bs.Y.A1, Krs.X, Krs.Y]
-//   - commitments[2]: [Commitments[0].X, Commitments[0].Y]
-//   - commitmentPok[2]: [CommitmentPok.X, CommitmentPok.Y]
-func ProofToBigInts(gnarkProof groth16.Proof) (
-	proof [8]*big.Int,
-	commitments [2]*big.Int,
-	commitmentPok [2]*big.Int,
-	err error,
-) {
-	p, ok := gnarkProof.(*groth16_bn254.Proof)
-	if !ok {
-		err = fmt.Errorf("expected BN254 proof")
-		return
+func ProofToBigInts(proof groth16.Proof) ([8]*big.Int, [2]*big.Int, [2]*big.Int, error) {
+	var out [8]*big.Int
+	for i := range out {
+		out[i] = new(big.Int)
 	}
-
-	// Initialize all big.Int pointers
-	for i := range proof {
-		proof[i] = new(big.Int)
+	var commitmentPoks [2]*big.Int
+	for i := range commitmentPoks {
+		commitmentPoks[i] = new(big.Int)
 	}
+	var commitments [2]*big.Int
 	for i := range commitments {
 		commitments[i] = new(big.Int)
 	}
-	for i := range commitmentPok {
-		commitmentPok[i] = new(big.Int)
+
+	p, ok := proof.(*groth16_bn254.Proof)
+	if !ok {
+		return out, commitmentPoks, commitments, fmt.Errorf("expected BN254 proof")
 	}
 
 	// A (G1)
-	p.Ar.X.BigInt(proof[0])
-	p.Ar.Y.BigInt(proof[1])
+	p.Ar.X.BigInt(out[0])
+	p.Ar.Y.BigInt(out[1])
 
-	// B (G2)
-	p.Bs.X.A0.BigInt(proof[2])
-	p.Bs.X.A1.BigInt(proof[3])
-	p.Bs.Y.A0.BigInt(proof[4])
-	p.Bs.Y.A1.BigInt(proof[5])
+	// B (G2) — NOTE the order (imag, real) for Solidity
+	p.Bs.X.A0.BigInt(out[2])
+	p.Bs.X.A1.BigInt(out[3])
+	p.Bs.Y.A0.BigInt(out[4])
+	p.Bs.Y.A1.BigInt(out[5])
 
 	// C (G1)
-	p.Krs.X.BigInt(proof[6])
-	p.Krs.Y.BigInt(proof[7])
+	p.Krs.X.BigInt(out[6])
+	p.Krs.Y.BigInt(out[7])
 
-	// Commitment proof of knowledge
-	p.CommitmentPok.X.BigInt(commitmentPok[0])
-	p.CommitmentPok.Y.BigInt(commitmentPok[1])
+	p.CommitmentPok.X.BigInt(commitmentPoks[0])
+	p.CommitmentPok.Y.BigInt(commitmentPoks[1])
 
-	// Commitments
 	p.Commitments[0].X.BigInt(commitments[0])
 	p.Commitments[0].Y.BigInt(commitments[1])
-
-	return
+	return out, commitmentPoks, commitments, nil
 }
