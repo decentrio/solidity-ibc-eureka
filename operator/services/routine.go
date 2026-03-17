@@ -8,6 +8,7 @@ import (
 	"math/big"
 	updateclientContract "operator/bindings/UpdateClient"
 	operatorclient "operator/client"
+	"operator/prover"
 	"strconv"
 	"strings"
 	"time"
@@ -128,22 +129,13 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 
 	proposedHeader := latestLightBlock.IntoHeader(*trustedLightBlock)
 
-	// TODO: proof for multiple sigs
-	untrustedHeaderCommit := latestLightBlock.SignedHeader.Commit
-	if untrustedHeaderCommit == nil {
-		return nil, fmt.Errorf("untrusted header commit is nil")
+	// TODO: proof for multiple sigs — currently only proves 1st valid validator signature
+	// Extract first non-absent validator signature from the latest block
+	valSig, err := prover.ExtractValidatorSignature(latestLightBlock, chainId)
+	if err != nil {
+		return nil, fmt.Errorf("extract validator signature: %w", err)
 	}
-	untrustedHeaderSigs := untrustedHeaderCommit.Signatures
-
-	sig := untrustedHeaderSigs[0]
-	trustedValidator := latestLightBlock.ValSet.Validators[0]
-	pub := trustedValidator.PubKey.Bytes()
-	sigData := sig.Signature
-	if len(sigData) != 64 {
-		return nil, fmt.Errorf("invalid signature length: %d", len(sigData))
-	}
-	voteMsg := untrustedHeaderCommit.VoteSignBytes(chainId, int32(0))
-	proof, commitments, commitmentPok, err := w.Prover.GenerateProof(sigData, pub, voteMsg)
+	proof, commitments, commitmentPok, err := w.Prover.GenerateProof(valSig.Signature, valSig.PublicKey, valSig.SignBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error generating proof: %w", err)
 	}
