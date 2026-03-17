@@ -19,35 +19,6 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 )
 
-type Fp25519 = emulated.Curve25519Fp
-type Fr25519 = emulated.Curve25519Fr
-
-type PreHashCircuit[Base, Scalars emulated.FieldParams] struct {
-	Sig eddsa.Signature[Base, Scalars] `gnark:",public"`
-	// Msg  emulated.Element[Scalars]      `gnark:",public"`
-	Hash emulated.Element[Scalars]      `gnark:",public"`
-	Pub  eddsa.PublicKey[Base, Scalars] `gnark:",public"`
-}
-
-func (c *PreHashCircuit[Base, Scalars]) Define(api frontend.API) error {
-
-	//A, _ := new(big.Int).SetString("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffec", 0)
-	//D, _ := new(big.Int).SetString("0x52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 0)
-	//Gx, _ := new(big.Int).SetString("0x216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a", 0)
-	//Gy, _ := new(big.Int).SetString("0x6666666666666666666666666666666666666666666666666666666666666658", 0)
-
-	config := eddsa.Config{
-		Hasher:  nil,
-		FromWei: false,
-	}
-
-	err := eddsa.Verify[Base, Scalars](api, c.Sig, c.Hash, c.Pub, config)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 type EcipProver struct {
 	r1cs constraint.ConstraintSystem
 	pk   groth16.ProvingKey

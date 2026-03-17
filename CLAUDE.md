@@ -11,6 +11,14 @@ This is a production Solidity implementation of **IBC v2 (Inter-Blockchain Commu
 - **Rust** (`packages/`, `programs/`): SP1 RISC-V proving programs (legacy), relayer, CosmWasm Ethereum light client
 - **Go** (`e2e/`): End-to-end tests using the interchaintest framework
 
+## Prerequisites
+
+- **bun** for Solidity dependencies (`bun install`, not npm/yarn — npm fails on git deps like `@uniswap/permit2`)
+- **just** task runner for build/test/lint commands
+- **Foundry** (forge, cast) for Solidity compilation and testing
+- **Go 1.25+** for the operator module
+- **Docker Desktop** + **Kurtosis** for e2e testing
+
 ## Commands
 
 All commands use the **just** task runner (`just` is required):
@@ -43,6 +51,17 @@ just generate-fixtures-solidity  # Regenerate Solidity test fixtures
 To run a single Foundry test:
 ```bash
 forge test --match-test testSendTransfer -vvv
+```
+
+Go operator tests:
+```bash
+cd operator && go test ./prover/...
+cd operator && go test ./...
+```
+
+Local e2e setup (Kurtosis ETH + Gaia):
+```bash
+bash run_node.sh
 ```
 
 ## Architecture
@@ -80,7 +99,20 @@ Bidirectional relayer (Cosmos↔Ethereum) with ecip-gnark Groth16 prover:
 
 **Setup**: `cd operator && go run ./prover/cmd/ <output_dir>` — generates `r1cs.bin`, `pk.bin`, `vk.bin`, `Groth16Verifier.sol`
 
+**Fixture generation**: `cd operator && go run ./prover/cmd/fixture/ [bin_dir] [output_path]` — generates Groth16 proof fixture JSON for Solidity tests
+
 **Tests**: `cd operator && go test ./prover/...`
+
+**Go module dependencies**: `operator/go.mod` uses `replace` directives for local paths to `ecip-gnark` (`../../ecip-gnark`) and `gnark` (`../../decentrio-gnark`). These point outside the repo and must be adjusted per developer's local setup.
+
+**Config**: `operator/config.example.json` defines two modules: `cosmos_to_eth` (contract addresses for ICS26, WrapperVerifier, Membership, UpdateClient, Misbehaviour) and `eth_to_cosmos` (Beacon API URL, signer address).
+
+### Contract Programs (`contracts/programs/`)
+
+On-chain verification logic called by `SP1ICS07Tendermint`:
+- `UpdateClient.sol`: Validates Tendermint header updates (height, time, validator set transitions)
+- `Membership.sol`: Verifies ICS-23 Merkle proofs for packet commitments
+- `Misbehaviour.sol`: Detects and handles validator equivocation
 
 ### SP1 Programs (RISC-V, in `programs/sp1-programs/`) [Legacy]
 
@@ -145,6 +177,17 @@ ICS20Transfer supports batching multiple packets into a single proof submission,
 - `IVerifier.sol`: Interface — `IVerifier` (wrapper) and `IGroth16Verifier` (raw)
 
 **MsgUpdateClient** includes: `proof[8]`, `commitments[2]`, `commitmentPok[2]`, `signature[2]` (R,S as bytes32), `validatorPubkey` (bytes32), `voteSignBytes` (bytes32, keccak256 hash)
+
+## Regenerating Go Bindings
+
+After modifying Solidity contracts that the operator depends on (SP1ICS07Tendermint, ICS26Router, UpdateClient, Misbehaviour):
+```bash
+bun install && forge build
+# Then use abigen to regenerate from out/<Contract>.sol/<Contract>.json
+abigen --abi <abi_json> --bin <bin_hex> --pkg <PkgName> --out operator/bindings/<PkgName>/binding.go
+```
+
+ABI and Bin bytecode must stay in sync — if you update the ABI (e.g., add fields to a struct), you must also recompile and update the Bin.
 
 ## Shadowfork Tests
 

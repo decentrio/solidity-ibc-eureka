@@ -17,7 +17,7 @@ import (
 // TestProveSignature_InvalidSigLength verifies that ProveSignature rejects
 // signatures that are not exactly 64 bytes.
 func TestProveSignature_InvalidSigLength(t *testing.T) {
-	p := &Prover{}
+	p := &EcipProver{}
 
 	tests := []struct {
 		name   string
@@ -36,7 +36,7 @@ func TestProveSignature_InvalidSigLength(t *testing.T) {
 			pub := make([]byte, 32)
 			msg := []byte("test message")
 
-			_, _, _, err := p.ProveSignature(sig, pub, msg)
+			_, _, _, err := p.GenerateProof(sig, pub, msg)
 			if err == nil {
 				t.Fatalf("expected error for sig length %d, got nil", tc.sigLen)
 			}
@@ -52,7 +52,7 @@ func TestProveSignature_InvalidSigLength(t *testing.T) {
 // TestProveSignature_InvalidPubLength verifies that ProveSignature rejects
 // public keys that are not exactly 32 bytes.
 func TestProveSignature_InvalidPubLength(t *testing.T) {
-	p := &Prover{}
+	p := &EcipProver{}
 
 	tests := []struct {
 		name   string
@@ -71,7 +71,7 @@ func TestProveSignature_InvalidPubLength(t *testing.T) {
 			pub := make([]byte, tc.pubLen)
 			msg := []byte("test message")
 
-			_, _, _, err := p.ProveSignature(sig, pub, msg)
+			_, _, _, err := p.GenerateProof(sig, pub, msg)
 			if err == nil {
 				t.Fatalf("expected error for pub length %d, got nil", tc.pubLen)
 			}

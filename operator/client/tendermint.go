@@ -722,39 +722,3 @@ func bytesToBytes32(data []byte) [32]byte {
 	copy(result[:], data)
 	return result
 }
-
-func EncodeClientState(clientState updateClientContract.IICS07TendermintMsgsClientState) ([]byte, error) {
-	clientStateType, _ := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
-		{Name: "chainId", Type: "string"},
-		{Name: "trustLevel", Type: "tuple", Components: []abi.ArgumentMarshaling{
-			{Name: "numerator", Type: "uint8"},
-			{Name: "denominator", Type: "uint8"},
-		}},
-		{Name: "latestHeight", Type: "tuple", Components: []abi.ArgumentMarshaling{
-			{Name: "revisionNumber", Type: "uint64"},
-			{Name: "revisionHeight", Type: "uint64"},
-		}},
-		{Name: "trustingPeriod", Type: "uint32"},
-		{Name: "unbondingPeriod", Type: "uint32"},
-		{Name: "isFrozen", Type: "bool"},
-		{Name: "zkAlgorithm", Type: "uint8"},
-	})
-
-	args := abi.Arguments{
-		{Type: clientStateType},
-	}
-	return args.Pack(clientState)
-}
-
-func EncodeConsensusState(consensusState updateClientContract.IICS07TendermintMsgsConsensusState) ([]byte, error) {
-	consensusStateType, _ := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
-		{Name: "timestamp", Type: "uint128"},
-		{Name: "root", Type: "bytes32"},
-		{Name: "nextValidatorsHash", Type: "bytes32"},
-	})
-
-	args := abi.Arguments{
-		{Type: consensusStateType},
-	}
-	return args.Pack(consensusState)
-}
