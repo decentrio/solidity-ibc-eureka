@@ -18,24 +18,9 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
+
+	"operator/prover"
 )
-
-type Fp25519 = emulated.Curve25519Fp
-type Fr25519 = emulated.Curve25519Fr
-
-type PreHashCircuit[Base, Scalars emulated.FieldParams] struct {
-	Sig  eddsa.Signature[Base, Scalars] `gnark:",public"`
-	Hash emulated.Element[Scalars]      `gnark:",public"`
-	Pub  eddsa.PublicKey[Base, Scalars]  `gnark:",public"`
-}
-
-func (c *PreHashCircuit[Base, Scalars]) Define(api frontend.API) error {
-	config := eddsa.Config{
-		Hasher:  nil,
-		FromWei: false,
-	}
-	return eddsa.Verify[Base, Scalars](api, c.Sig, c.Hash, c.Pub, config)
-}
 
 func main() {
 	outDir := "bin"
@@ -81,7 +66,7 @@ func main() {
 
 	// Compile circuit
 	fmt.Println("Compiling PreHashCircuit...")
-	var circuit PreHashCircuit[Fp25519, Fr25519]
+	var circuit prover.PreHashCircuit[prover.Fp25519, prover.Fr25519]
 	r1csObj, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circuit)
 	if err != nil {
 		panic(fmt.Errorf("compile: %w", err))
@@ -96,19 +81,19 @@ func main() {
 	}
 
 	// Build assignment and prove
-	var assignment PreHashCircuit[Fp25519, Fr25519]
-	assignment.Sig = eddsa.Signature[Fp25519, Fr25519]{
-		R: sw_emulated.AffinePoint[Fp25519]{
-			X: emulated.ValueOf[Fp25519](rX),
-			Y: emulated.ValueOf[Fp25519](rY),
+	var assignment prover.PreHashCircuit[prover.Fp25519, prover.Fr25519]
+	assignment.Sig = eddsa.Signature[prover.Fp25519, prover.Fr25519]{
+		R: sw_emulated.AffinePoint[prover.Fp25519]{
+			X: emulated.ValueOf[prover.Fp25519](rX),
+			Y: emulated.ValueOf[prover.Fp25519](rY),
 		},
-		S: emulated.ValueOf[Fr25519](s),
+		S: emulated.ValueOf[prover.Fr25519](s),
 	}
-	assignment.Hash = emulated.ValueOf[Fr25519](h)
-	assignment.Pub = eddsa.PublicKey[Fp25519, Fr25519]{
-		A: sw_emulated.AffinePoint[Fp25519]{
-			X: emulated.ValueOf[Fp25519](aX),
-			Y: emulated.ValueOf[Fp25519](aY),
+	assignment.Hash = emulated.ValueOf[prover.Fr25519](h)
+	assignment.Pub = eddsa.PublicKey[prover.Fp25519, prover.Fr25519]{
+		A: sw_emulated.AffinePoint[prover.Fp25519]{
+			X: emulated.ValueOf[prover.Fp25519](aX),
+			Y: emulated.ValueOf[prover.Fp25519](aY),
 		},
 	}
 

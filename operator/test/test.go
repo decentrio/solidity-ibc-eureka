@@ -251,10 +251,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("failed reading prover key: %w", err))
 	}
-	worker := &services.Worker{
-		&transaction.Handler{},
-		prover,
-	}
+	worker := services.NewWorker(&transaction.Handler{}, prover)
 
 	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, cfg.EthToCosmosConfig.BeaconUrl, "")
 	ctx.SetAddresses(cfg.CosmosToEthConfig.ICS26Address, cfg.CosmosToEthConfig.WrapperVerifier, cfg.CosmosToEthConfig.Membership, cfg.CosmosToEthConfig.Misbehaviour, cfg.CosmosToEthConfig.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
