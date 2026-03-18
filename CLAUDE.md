@@ -18,6 +18,7 @@ This is a production Solidity implementation of **IBC v2 (Inter-Blockchain Commu
 - **Foundry** (forge, cast) for Solidity compilation and testing
 - **Go 1.25+** for the operator module
 - **Docker Desktop** + **Kurtosis** for e2e testing
+- **Nix** development shell available (`nix develop`) as alternative to manual tool installation
 
 ## Commands
 
@@ -42,10 +43,23 @@ just lint                     # All linters
 just lint-solidity            # forge fmt + solhint + natlint
 just lint-go                  # golangci-lint
 just lint-rust                # cargo fmt + cargo clippy
+just lint-buf                 # Protobuf linting
+
+# Security
+just slither                  # Static analysis (Slither)
 
 # Generate
 just generate-abi             # Extract ABIs from compiled contracts
 just generate-fixtures-solidity  # Regenerate Solidity test fixtures
+
+# Install
+just install-operator         # Install operator binary
+just install-relayer          # Install relayer binary
+
+# E2E test suites (convenience)
+just test-e2e-eureka          # IBC Eureka suite only
+just test-e2e-relayer         # Relayer suite only
+just test-e2e-cosmos-relayer  # Cosmos relayer suite only
 ```
 
 To run a single Foundry test:
@@ -55,8 +69,10 @@ forge test --match-test testSendTransfer -vvv
 
 Go operator tests:
 ```bash
-cd operator && go test ./prover/...
-cd operator && go test ./...
+cd operator && go test ./...              # All operator tests
+cd operator && go test -race ./...        # With race detector
+cd operator && go test -v ./prover/...    # Single package verbose
+cd operator && go test -run TestParseTrustThreshold ./client/...  # Single test
 ```
 
 Local e2e setup (Kurtosis ETH + Gaia):
@@ -89,9 +105,11 @@ ICS26Router (UUPS) ← Main entry point for all IBC messages
 
 Bidirectional relayer (Cosmos↔Ethereum) with ecip-gnark Groth16 prover:
 - `prover/`: Ed25519 signature → Groth16 proof generation (PreHashCircuit, 24 public inputs)
+- `prover/extractor.go`: `ExtractValidatorSignature()` — extracts first non-absent Ed25519 signature from a LightBlock for Groth16 proving (single validator only, TODO: multi-validator)
 - `prover/cmd/`: Circuit setup tool — compiles circuit, exports R1CS/PK/VK/Groth16Verifier.sol
-- `services/`: Main relayer loop, UpdateCosmosClient, UpdateEthClient, batch processing
-- `client/`: Tendermint RPC + Ethereum Beacon API clients
+- `services/`: Main relayer loop, UpdateCosmosClient, UpdateEthClient, batch processing (`BatchBuilder` with mutex-guarded packet queue)
+- `subscriber/`: Event listeners — `SubscribeCosmos` (CometBFT WebSocket) and `SubscribeEth` (ICS26Router contract events)
+- `client/`: Tendermint RPC (`tendermint.go`) + Ethereum Beacon API (`ethereum.go`) clients
 - `transaction/`: Ethereum tx builder and sender
 - `bindings/`: Go bindings for Solidity contracts
 
@@ -101,7 +119,7 @@ Bidirectional relayer (Cosmos↔Ethereum) with ecip-gnark Groth16 prover:
 
 **Fixture generation**: `cd operator && go run ./prover/cmd/fixture/ [bin_dir] [output_path]` — generates Groth16 proof fixture JSON for Solidity tests
 
-**Tests**: `cd operator && go test ./prover/...`
+**Tests**: `cd operator && go test ./...` (all packages) or `cd operator && go test -race ./...` (with race detector). Unit tests exist for: `prover/`, `client/`, `keys/`, `utils/`, `services/`, `subscriber/`.
 
 **Go module dependencies**: `operator/go.mod` uses `replace` directives for local paths to `ecip-gnark` (`../../ecip-gnark`) and `gnark` (`../../decentrio-gnark`). These point outside the repo and must be adjusted per developer's local setup.
 
@@ -139,6 +157,7 @@ Pre-generated SP1 proof fixtures (Groth16 and PLONK) for unit testing without ru
 Go tests using interchaintest that spin up real Ethereum (via Kurtosis) and Tendermint nodes. Requires Docker Desktop, relayer/operator binaries, and an SP1 network key. Test suites:
 - `TestWithIbcEurekaTestSuite`: Full IBC transfer flows
 - `TestWithRelayerTestSuite`: Relayer-specific tests
+- `TestWithCosmosRelayerTestSuite`: Cosmos-to-Cosmos relay tests
 - `TestWithSP1ICS07TendermintTestSuite`: Light client tests
 - `TestWithMultichainTestSuite`: Multi-chain transfers
 
@@ -160,12 +179,20 @@ Defined in `contracts/utils/IBCRolesLib.sol`:
 
 ICS20Transfer supports batching multiple packets into a single proof submission, reducing gas cost by ~90% per packet for large batches (25–50 packets). Relevant in `ICS20Transfer.sol` `multiRecvPacket`/`multiAckPacket` methods.
 
+## Linting & Static Analysis
+
+- **solhint** (`.solhint.json`): Max code complexity 8, function max lines 70 (warning)
+- **natlint**: NatSpec documentation linter for Solidity
+- **Slither** (`.slither.config.json`): Security static analysis, excludes low/informational and dependencies
+- **buf**: Protobuf linting and code generation (`buf.yaml`, `buf.gen.yaml`)
+
 ## Foundry Configuration
 
 - Solidity version: `0.8.28`, EVM: `cancun`
 - Optimizer: enabled with 10,000 runs + IR (`--via-ir`)
 - Fuzz runs: 100,000 locally, 5,000 in CI
 - Fixed block timestamp for test reproducibility
+- Formatting: line length 120, tab width 4, double quotes
 
 ## Groth16 Verification (ecip-gnark)
 

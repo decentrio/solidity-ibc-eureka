@@ -40,9 +40,9 @@ type Handler struct {
 }
 
 func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, consensusHash []byte) error {
-	privKey := os.Getenv("PRIVATE_KEY")
+	privKey := os.Getenv("ETH_PRIVATE_KEY")
 	if privKey == "" {
-		return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
+		return fmt.Errorf("ETH_PRIVATE_KEY environment variable is required in .env file")
 	}
 	privateKey, err := keys.RestoreKey(privKey)
 	if err != nil {
