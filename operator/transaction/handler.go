@@ -30,6 +30,7 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 	ibcwasmtypes "github.com/cosmos/ibc-go/modules/light-clients/08-wasm/v10/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+	clienttypesv2 "github.com/cosmos/ibc-go/v10/modules/core/02-client/v2/types"
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	exported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -345,7 +346,92 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 		return fmt.Errorf("transaction failed with code %d: %s", result.Code, result.Log)
 	}
 
-	log.Printf("Transaction broadcast successfully. Hash: %s", result.Hash.String())
+	log.Printf("MsgCreateClient broadcast successfully. Hash: %s", result.Hash.String())
+
+	// Build and broadcast MsgRegisterCounterparty as a separate transaction
+	registerMsg := clienttypesv2.NewMsgRegisterCounterparty(
+		"08-wasm-0",
+		[][]byte{[]byte(exported.StoreKey), []byte("")},
+		"cosmoshub-1",
+		signerAddr.String(),
+	)
+
+	// Re-query account info (sequence incremented after first tx)
+	accountNumber, sequence, err = h.queryAccountInfo(svcCtx, signerAddr.String())
+	if err != nil {
+		return fmt.Errorf("failed to query account info for register counterparty: %w", err)
+	}
+
+	txBuilder2 := txConfig.NewTxBuilder()
+	if err := txBuilder2.SetMsgs(registerMsg); err != nil {
+		return fmt.Errorf("failed to set register counterparty message: %w", err)
+	}
+	txBuilder2.SetGasLimit(gasLimit)
+	txBuilder2.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(feeDenom, sdkmath.NewInt(feeAmount))))
+
+	emptySig2 := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: nil,
+		},
+		Sequence: sequence,
+	}
+	if err := txBuilder2.SetSignatures(emptySig2); err != nil {
+		return fmt.Errorf("failed to set empty signature: %w", err)
+	}
+
+	signerData2 := authsigning.SignerData{
+		Address:       signerAddr.String(),
+		ChainID:       chainID,
+		AccountNumber: accountNumber,
+		Sequence:      sequence,
+		PubKey:        pubKey,
+	}
+
+	signBytes2, err := authsigning.GetSignBytesAdapter(
+		context.Background(),
+		txConfig.SignModeHandler(),
+		sdksigning.SignMode_SIGN_MODE_DIRECT,
+		signerData2,
+		txBuilder2.GetTx(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get sign bytes for register counterparty: %w", err)
+	}
+
+	sigRaw2, err := privKey.Sign(signBytes2)
+	if err != nil {
+		return fmt.Errorf("failed to sign register counterparty tx: %w", err)
+	}
+
+	sigV22 := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: sigRaw2,
+		},
+		Sequence: sequence,
+	}
+	if err := txBuilder2.SetSignatures(sigV22); err != nil {
+		return fmt.Errorf("failed to set signatures: %w", err)
+	}
+
+	txBytes2, err := txConfig.TxEncoder()(txBuilder2.GetTx())
+	if err != nil {
+		return fmt.Errorf("failed to encode register counterparty tx: %w", err)
+	}
+
+	result2, err := svcCtx.CosmosClient().BroadcastTxSync(context.Background(), txBytes2)
+	if err != nil {
+		return fmt.Errorf("failed to broadcast register counterparty tx: %w", err)
+	}
+
+	if result2.Code != 0 {
+		return fmt.Errorf("register counterparty tx failed with code %d: %s", result2.Code, result2.Log)
+	}
+
+	log.Printf("MsgRegisterCounterparty broadcast successfully. Hash: %s", result2.Hash.String())
 
 	return nil
 }
