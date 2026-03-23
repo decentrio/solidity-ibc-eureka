@@ -123,7 +123,27 @@ Bidirectional relayer (Cosmos↔Ethereum) with ecip-gnark Groth16 prover:
 
 **Go module dependencies**: `operator/go.mod` uses `replace` directives for local paths to `ecip-gnark` (`../../ecip-gnark`) and `gnark` (`../../decentrio-gnark`). These point outside the repo and must be adjusted per developer's local setup.
 
+**Operator tools** (`operator/cmd/`):
+- `encode_debug/`: Outputs Go `proto.Marshal()` reference hex for all CometBFT types (Version, SimpleValidator, BlockID, PartSetHeader, Header). Used as source of truth to cross-validate Solidity's `Encode.sol` output via `test/solidity-ibc/EncodeTest.t.sol`.
+
 **Config**: `operator/config.example.json` defines two modules: `cosmos_to_eth` (contract addresses for ICS26, WrapperVerifier, Membership, UpdateClient, Misbehaviour) and `eth_to_cosmos` (Beacon API URL, signer address).
+
+### On-chain Encoding & Hashing (`contracts/utils/`)
+
+- `Encode.sol`: Manual protobuf wire-format encoding for Tendermint types, matching Go `proto.Marshal()` exactly. Includes:
+  - `encodeVarint`, `encodeString`: Standard protobuf primitives
+  - `encodeValidator`: Encodes `SimpleValidator` with `PublicKey{Ed25519: ...}` oneof wrapper (matching `cmttypes.SimpleValidator.Marshal()`)
+  - `encodeVersion`: Skips zero-value fields per proto3 spec (matching `cmtversion.Consensus.Marshal()`)
+  - `encodeBlockId`, `encodePartSetHeader`: Direct proto.Marshal equivalents
+  - `cdcEncodeString`, `cdcEncodeInt64`, `cdcEncodeBytes`, `cdcEncodeBytes32`: Wrap values in gogoproto wrapper types (`StringValue`, `Int64Value`, `BytesValue`) matching CometBFT's internal `cdcEncode()` used in `Header.Hash()`
+  - `encodeTimestamp`: Encodes unix seconds as `google.protobuf.Timestamp` (matching `gogotypes.StdTimeMarshal()`)
+- `Header.sol`: Computes Tendermint header hash (`hashHeader`) and validator set hash (`hashValSet`) using `Encode.sol` + Merkle tree. Called by `UpdateClient.sol` to verify header authenticity.
+  - `hashHeader`: Always hashes 14 fields (matching CometBFT `Header.Hash()`), uses `cdcEncode*` wrappers
+  - `hashValSet`: Merkle root of proto-encoded validators
+  - `merkleHash`: Uses 1-byte leaf/inner prefixes (`bytes1(0x00)`/`bytes1(0x01)`) per Tendermint spec (RFC 6962)
+- `HeightCmp.sol`: Height comparison utilities for IBC height tuples.
+
+**Cross-validation**: `cd operator && go run ./cmd/encode_debug/` outputs Go `proto.Marshal()` reference hex. `forge test --match-contract EncodeTest` validates Solidity output matches Go exactly (34 tests).
 
 ### Contract Programs (`contracts/programs/`)
 
