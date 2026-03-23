@@ -45,14 +45,14 @@ contract WrapperVerifier is IVerifier {
         uint256[2] calldata commitmentPok,
         bytes32[2] calldata signature,
         bytes32 pubkey,
-        bytes32 message
+        bytes calldata message
     ) external override returns (bool) {
-        bytes memory hashData = new bytes(96);
         bytes32 R = signature[0];
+        bytes memory hashData = new bytes(64 + message.length);
         assembly ("memory-safe") {
             mstore(add(hashData, 32), R)
             mstore(add(hashData, 64), pubkey)
-            mstore(add(hashData, 96), message)
+            calldatacopy(add(hashData, 96), message.offset, message.length)
         }
 
         uint256[2] memory hashResult = sha512(hashData);

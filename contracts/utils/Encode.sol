@@ -28,6 +28,26 @@ library Encode {
         return abi.encodePacked(lengthBytes, valueBytes);
     }
 
+    /// @notice Encodes a nanosecond timestamp as a protobuf google.protobuf.Timestamp.
+    /// @dev Omits fields with zero value per proto3 rules.
+    function encodeTimestamp(uint128 nanos) public pure returns (bytes memory) {
+        uint128 secs = nanos / 1_000_000_000;
+        uint128 ns = nanos % 1_000_000_000;
+        bytes memory encoded = new bytes(0);
+
+        // Field 1: seconds (tag = 1, wire type = 0 for varint)
+        if (secs > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(secs)));
+        }
+        // Field 2: nanos (tag = 2, wire type = 0 for varint)
+        if (ns > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(ns)));
+        }
+
+        return encoded;
+    }
 
     function encodeValidator(
         IICS07TendermintMsgs.SimpleValidator memory validator
@@ -140,6 +160,63 @@ library Encode {
         encoded = abi.encodePacked(encoded, uint8(32)); // 32 bytes length
         encoded = abi.encodePacked(encoded, partSetHeader.hashData);
         
+        return encoded;
+    }
+
+    /// @notice Encodes a CanonicalVote as protobuf bytes (equivalent to CometBFT's VoteSignBytes).
+    /// @param commit The block commit.
+    /// @param chainId The chain ID string.
+    /// @param valIdx The validator index into commitSigs.
+    /// @return The protobuf-encoded canonical vote bytes.
+    function voteSignBytes(
+        IICS07TendermintMsgs.BlockCommit memory commit,
+        string memory chainId,
+        uint32 valIdx
+    ) public pure returns (bytes memory) {
+        IICS07TendermintMsgs.CommitSig memory commitSig = commit.commitSigs[valIdx];
+
+        bool useCommitBlockId = commitSig.flag == IICS07TendermintMsgs.CommitSigFlag.BLOCK_ID_FLAG_COMMIT;
+        bytes memory encodedBlockId = useCommitBlockId ? encodeBlockId(commit.blockId) : new bytes(0);
+        bytes memory encodedTimestamp = encodeTimestamp(commitSig.data.timestamp);
+        bytes memory chainIdBytes = bytes(chainId);
+
+        bytes memory encoded = new bytes(0);
+
+        // Field 1: type = PrecommitType (2), varint, tag 0x08
+        encoded = abi.encodePacked(encoded, uint8(0x08), uint8(0x02));
+
+        // Field 2: height, sfixed64, tag 0x11 (omit if zero)
+        if (commit.height > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x11));
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.height)));
+        }
+
+        // Field 3: round, sfixed64, tag 0x19 (omit if zero)
+        if (commit.round > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x19));
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.round)));
+        }
+
+        // Field 4: block_id, length-delimited, tag 0x22
+        if (encodedBlockId.length > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x22));
+            encoded = abi.encodePacked(encoded, encodeVarint(encodedBlockId.length));
+            encoded = abi.encodePacked(encoded, encodedBlockId);
+        }
+
+        // Field 5: timestamp, length-delimited, tag 0x2a
+        if (encodedTimestamp.length > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x2A));
+            encoded = abi.encodePacked(encoded, encodeVarint(encodedTimestamp.length));
+            encoded = abi.encodePacked(encoded, encodedTimestamp);
+        }
+
+        // Field 6: chain_id, length-delimited string, tag 0x32
+        if (chainIdBytes.length > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x32));
+            encoded = abi.encodePacked(encoded, encodeString(chainId));
+        }
+
         return encoded;
     }
 }
