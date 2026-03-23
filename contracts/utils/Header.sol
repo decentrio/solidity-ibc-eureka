@@ -40,7 +40,7 @@ library Header {
         headerBytes[2] = Encode.cdcEncodeInt64(uint256(header.height));
 
         // Field 3: Time (StdTimeMarshal → Timestamp)
-        headerBytes[3] = Encode.encodeTimestamp(uint256(header.time));
+        headerBytes[3] = Encode.encodeTimestamp(header.time);
 
         // Field 4: LastBlockId (proto.Marshal, empty if not present)
         if (header.hasLastBlockId) {

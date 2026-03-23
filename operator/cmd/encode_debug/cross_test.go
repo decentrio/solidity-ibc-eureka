@@ -19,6 +19,7 @@ import (
 	cmttypes "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
 	"github.com/cometbft/cometbft/types"
+	protoio "github.com/cosmos/gogoproto/io"
 	gogotypes "github.com/cosmos/gogoproto/types"
 )
 
@@ -461,23 +462,36 @@ func TestCrossValidate(t *testing.T) {
 	})
 
 	// ═══════════════════════════════════════════════════
-	// 8. encodeTimestamp
+	// 8. encodeTimestamp (nanos)
 	// ═══════════════════════════════════════════════════
 	t.Run("encodeTimestamp", func(t *testing.T) {
-		tests := []uint64{1700000000, 0, 1}
-		for _, secs := range tests {
-			t.Run(fmt.Sprintf("%d", secs), func(t *testing.T) {
+		// Input is nanoseconds; Solidity splits into seconds + nanos
+		tests := []struct {
+			name  string
+			nanos uint64 // nanoseconds
+		}{
+			{"1700000000s", 1700000000_000000000},
+			{"zero", 0},
+			{"1s", 1_000000000},
+			{"with_nanos", 1700000000_500000000}, // 1700000000.5s
+			{"only_nanos", 999999999},             // 0s + 999999999ns
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				secs := int64(tc.nanos / 1_000_000_000)
+				ns := int32(tc.nanos % 1_000_000_000)
+
 				var goBytes []byte
-				if secs == 0 {
+				if secs == 0 && ns == 0 {
 					goBytes = []byte{}
 				} else {
-					ts, _ := gogotypes.StdTimeMarshal(time.Unix(int64(secs), 0))
+					ts, _ := gogotypes.StdTimeMarshal(time.Unix(secs, int64(ns)))
 					goBytes = ts
 				}
 
 				solBytes := castCall(t, addr,
-					"encodeTimestamp(uint256)(bytes)",
-					fmt.Sprintf("%d", secs),
+					"encodeTimestamp(uint128)(bytes)",
+					fmt.Sprintf("%d", tc.nanos),
 				)
 
 				compareBytes(t, "encodeTimestamp", goBytes, solBytes)
@@ -486,7 +500,78 @@ func TestCrossValidate(t *testing.T) {
 	})
 
 	// ═══════════════════════════════════════════════════
-	// 9. merkleHash
+	// 9. voteSignBytes
+	// ═══════════════════════════════════════════════════
+	t.Run("voteSignBytes", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			height    int64
+			round     int32
+			flag      uint8 // 1 = BLOCK_ID_FLAG_COMMIT
+			timestamp uint64
+			chainID   string
+		}{
+			{"basic", 12345, 0, 1, 1700000000_000000000, "cosmoshub-4"},
+			{"with_round", 100, 3, 1, 1700000000_500000000, "test-chain"},
+			{"nil_vote", 50, 0, 2, 1700000000_000000000, "cosmoshub-4"}, // FLAG_NIL = no blockId
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				// Go: construct CanonicalVote and use protoio.MarshalDelimited
+				var blockID *cmttypes.BlockID
+				if tc.flag == 1 { // BLOCK_ID_FLAG_COMMIT
+					blockID = &cmttypes.BlockID{
+						Hash:          hash2[:],
+						PartSetHeader: cmttypes.PartSetHeader{Total: 1, Hash: hash1[:]},
+					}
+				}
+
+				secs := int64(tc.timestamp / 1_000_000_000)
+				ns := int64(tc.timestamp % 1_000_000_000)
+
+				cv := cmttypes.CanonicalVote{
+					Type:   cmttypes.SignedMsgType(cmttypes.PrecommitType),
+					Height: tc.height,
+					Round:  int64(tc.round),
+					Timestamp: time.Unix(secs, ns),
+					ChainID: tc.chainID,
+				}
+				if blockID != nil {
+					cv.BlockID = &cmttypes.CanonicalBlockID{
+						Hash: blockID.Hash,
+						PartSetHeader: cmttypes.CanonicalPartSetHeader{
+							Total: blockID.PartSetHeader.Total,
+							Hash:  blockID.PartSetHeader.Hash,
+						},
+					}
+				}
+
+				var buf bytes.Buffer
+				if err := protoio.NewDelimitedWriter(&buf).WriteMsg(&cv); err != nil {
+					t.Fatal(err)
+				}
+				goBytes := buf.Bytes()
+
+				// Solidity
+				solBytes := castCall(t, addr,
+					"voteSignBytes(uint64,uint32,bytes32,uint32,bytes32,uint8,uint128,string)(bytes)",
+					fmt.Sprintf("%d", tc.height),
+					fmt.Sprintf("%d", tc.round),
+					hash2Hex,
+					"1",
+					hash1Hex,
+					fmt.Sprintf("%d", tc.flag),
+					fmt.Sprintf("%d", tc.timestamp),
+					tc.chainID,
+				)
+
+				compareBytes(t, "voteSignBytes", goBytes, solBytes)
+			})
+		}
+	})
+
+	// ═══════════════════════════════════════════════════
+	// 10. merkleHash
 	// ═══════════════════════════════════════════════════
 	t.Run("merkleHash", func(t *testing.T) {
 		t.Run("single_item", func(t *testing.T) {

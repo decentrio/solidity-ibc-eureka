@@ -139,13 +139,19 @@ library Encode {
         return abi.encodePacked(uint8(0x0A), uint8(32), value);
     }
 
-    /// @notice Encodes a unix timestamp as google.protobuf.Timestamp{seconds: s}.
-    /// Matches CometBFT's gogotypes.StdTimeMarshal() used in Header.Hash().
-    /// @param secs Unix timestamp in seconds
-    function encodeTimestamp(uint256 secs) public pure returns (bytes memory) {
-        if (secs == 0) return new bytes(0);
-        // Timestamp field 1 (tag=0x08, wire type 0) + varint(seconds)
-        return abi.encodePacked(uint8(0x08), encodeVarint(secs));
+    /// @notice Encodes a signed 64-bit integer as 8-byte little-endian (protobuf sfixed64).
+    function encodeSfixed64(int64 value) public pure returns (bytes memory) {
+        bytes memory result = new bytes(8);
+        uint64 v = uint64(value);
+        result[0] = bytes1(uint8(v));
+        result[1] = bytes1(uint8(v >> 8));
+        result[2] = bytes1(uint8(v >> 16));
+        result[3] = bytes1(uint8(v >> 24));
+        result[4] = bytes1(uint8(v >> 32));
+        result[5] = bytes1(uint8(v >> 40));
+        result[6] = bytes1(uint8(v >> 48));
+        result[7] = bytes1(uint8(v >> 56));
+        return result;
     }
 
     function encodePartSetHeader(IICS07TendermintMsgs.PartSetHeader memory partSetHeader) public pure returns (bytes memory) {
@@ -185,16 +191,16 @@ library Encode {
         // Field 1: type = PrecommitType (2), varint, tag 0x08
         encoded = abi.encodePacked(encoded, uint8(0x08), uint8(0x02));
 
-        // Field 2: height, sfixed64, tag 0x11 (omit if zero)
+        // Field 2: height, sfixed64 (fixed 8-byte little-endian), tag 0x11
         if (commit.height > 0) {
             encoded = abi.encodePacked(encoded, uint8(0x11));
-            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.height)));
+            encoded = abi.encodePacked(encoded, encodeSfixed64(int64(uint64(commit.height))));
         }
 
-        // Field 3: round, sfixed64, tag 0x19 (omit if zero)
+        // Field 3: round, sfixed64 (fixed 8-byte little-endian), tag 0x19
         if (commit.round > 0) {
             encoded = abi.encodePacked(encoded, uint8(0x19));
-            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.round)));
+            encoded = abi.encodePacked(encoded, encodeSfixed64(int64(uint64(commit.round))));
         }
 
         // Field 4: block_id, length-delimited, tag 0x22
@@ -217,6 +223,7 @@ library Encode {
             encoded = abi.encodePacked(encoded, encodeString(chainId));
         }
 
-        return encoded;
+        // Wrap with varint length prefix (MarshalDelimited for Amino compatibility)
+        return abi.encodePacked(encodeVarint(encoded.length), encoded);
     }
 }

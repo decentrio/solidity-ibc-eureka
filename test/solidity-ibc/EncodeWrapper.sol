@@ -46,8 +46,39 @@ contract EncodeWrapper {
         return Encode.cdcEncodeBytes32(value);
     }
 
-    function encodeTimestamp(uint256 secs) external pure returns (bytes memory) {
-        return Encode.encodeTimestamp(secs);
+    function encodeTimestamp(uint128 nanos) external pure returns (bytes memory) {
+        return Encode.encodeTimestamp(nanos);
+    }
+
+    function voteSignBytes(
+        uint64 height,
+        uint32 round,
+        bytes32 blockIdHash,
+        uint32 pshTotal,
+        bytes32 pshHash,
+        uint8 flag,
+        uint128 timestamp,
+        string calldata chainId
+    ) external pure returns (bytes memory) {
+        IICS07TendermintMsgs.CommitSig[] memory sigs = new IICS07TendermintMsgs.CommitSig[](1);
+        sigs[0] = IICS07TendermintMsgs.CommitSig({
+            flag: IICS07TendermintMsgs.CommitSigFlag(flag),
+            data: IICS07TendermintMsgs.CommitSigData({
+                validatorAddress: hex"",
+                timestamp: timestamp,
+                hasSignature: false,
+                signature: hex""
+            })
+        });
+
+        IICS07TendermintMsgs.BlockCommit memory commit = IICS07TendermintMsgs.BlockCommit({
+            height: height,
+            round: round,
+            blockId: IICS07TendermintMsgs.BlockId(blockIdHash, IICS07TendermintMsgs.PartSetHeader(pshTotal, pshHash)),
+            commitSigs: sigs
+        });
+
+        return Encode.voteSignBytes(commit, chainId, 0);
     }
 
     function merkleHash(bytes[] calldata items) external pure returns (bytes32) {
