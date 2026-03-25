@@ -63,7 +63,7 @@ contract Groth16VerifierTest is Test {
             fixture.commitmentPok,
             signature,
             fixture.pubkey,
-            fixture.message
+            abi.encodePacked(fixture.message)
         );
         assertTrue(result, "valid proof should verify");
     }
@@ -81,7 +81,7 @@ contract Groth16VerifierTest is Test {
             fixture.commitmentPok,
             signature,
             fixture.pubkey,
-            fixture.message
+            abi.encodePacked(fixture.message)
         );
         assertFalse(result, "tampered proof should not verify");
     }
@@ -96,7 +96,7 @@ contract Groth16VerifierTest is Test {
             fixture.commitmentPok,
             signature,
             wrongPubkey,
-            fixture.message
+            abi.encodePacked(fixture.message)
         );
         assertFalse(result, "wrong pubkey should not verify");
     }
@@ -111,7 +111,7 @@ contract Groth16VerifierTest is Test {
             fixture.commitmentPok,
             signature,
             fixture.pubkey,
-            wrongMessage
+            abi.encodePacked(wrongMessage)
         );
         assertFalse(result, "wrong message should not verify");
     }

@@ -9,6 +9,7 @@ import (
 	"operator/keys"
 	"os"
 	"strings"
+	"time"
 
 	routerContract "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
@@ -347,6 +348,11 @@ func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.
 	}
 
 	log.Printf("MsgCreateClient broadcast successfully. Hash: %s", result.Hash.String())
+
+	// Wait for MsgCreateClient tx to be included in a block before sending the next tx
+	if err := h.waitForTx(svcCtx, result.Hash, 30*time.Second); err != nil {
+		return fmt.Errorf("failed waiting for MsgCreateClient tx: %w", err)
+	}
 
 	// Build and broadcast MsgRegisterCounterparty as a separate transaction
 	registerMsg := clienttypesv2.NewMsgRegisterCounterparty(
@@ -796,4 +802,18 @@ func (h *Handler) queryAccountInfo(svcCtx services.Context, address string) (uin
 	}
 
 	return account.GetAccountNumber(), account.GetSequence(), nil
+}
+
+// waitForTx polls the chain until the transaction with the given hash is included in a block or the timeout expires.
+func (h *Handler) waitForTx(svcCtx services.Context, txHash []byte, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		result, err := svcCtx.CosmosClient().Tx(context.Background(), txHash, false)
+		if err == nil && result != nil && result.Height > 0 {
+			log.Printf("Tx %X confirmed at height %d", txHash, result.Height)
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return fmt.Errorf("timeout waiting for tx %X to be included in a block", txHash)
 }
