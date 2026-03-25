@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/v10/modules/core/23-commitment/types"
 	ics23 "github.com/cosmos/ics23/go"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
 const (
@@ -30,6 +30,131 @@ const (
 	ProofType_EXIST        = 0
 	ProofType_NON_EXIST    = 1
 )
+
+var clientStateType abi.Type
+var consensusStateType abi.Type
+var updateClientMsgType abi.Type
+
+func init() {
+	clientStateComponents := []abi.ArgumentMarshaling{
+		{Name: "chainId", Type: "string"},
+		{Name: "trustLevel", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "numerator", Type: "uint8"},
+			{Name: "denominator", Type: "uint8"},
+		}},
+		{Name: "latestHeight", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "revisionNumber", Type: "uint64"},
+			{Name: "revisionHeight", Type: "uint64"},
+		}},
+		{Name: "trustingPeriod", Type: "uint32"},
+		{Name: "unbondingPeriod", Type: "uint32"},
+		{Name: "isFrozen", Type: "bool"},
+		{Name: "zkAlgorithm", Type: "uint8"},
+	}
+	clientStateType, _ = abi.NewType("tuple", "", clientStateComponents)
+
+	consensusStateComponents := []abi.ArgumentMarshaling{
+		{Name: "timestamp", Type: "uint128"},
+		{Name: "root", Type: "bytes32"},
+		{Name: "nextValidatorsHash", Type: "bytes32"},
+	}
+	consensusStateType, _ = abi.NewType("tuple", "", consensusStateComponents)
+
+	signedHeaderComponents := []abi.ArgumentMarshaling{
+		{
+			Name: "header",
+			Type: "tuple",
+			Components: []abi.ArgumentMarshaling{
+				{Name: "version", Type: "tuple", Components: []abi.ArgumentMarshaling{
+					{Name: "blockVersion", Type: "uint64"},
+					{Name: "appVersion", Type: "uint64"},
+				}},
+				{Name: "chainId", Type: "string"},
+				{Name: "height", Type: "uint64"},
+				{Name: "time", Type: "uint128"},
+				{Name: "hasLastBlockId", Type: "bool"},
+				{Name: "lastBlockId", Type: "tuple", Components: []abi.ArgumentMarshaling{
+					{Name: "hashData", Type: "bytes32"},
+					{Name: "partSetHeader", Type: "tuple", Components: []abi.ArgumentMarshaling{
+						{Name: "total", Type: "uint32"},
+						{Name: "hashData", Type: "bytes32"},
+					}},
+				}},
+				{Name: "hasLastCommitHash", Type: "bool"},
+				{Name: "lastCommitHash", Type: "bytes32"},
+				{Name: "hasDataHash", Type: "bool"},
+				{Name: "dataHash", Type: "bytes32"},
+				{Name: "validatorsHash", Type: "bytes32"},
+				{Name: "nextValidatorsHash", Type: "bytes32"},
+				{Name: "consensusHash", Type: "bytes32"},
+				{Name: "appHash", Type: "bytes32"},
+				{Name: "hasLastResultsHash", Type: "bool"},
+				{Name: "lastResultsHash", Type: "bytes32"},
+				{Name: "hasEvidenceHash", Type: "bool"},
+				{Name: "evidenceHash", Type: "bytes32"},
+				{Name: "proposerAddress", Type: "bytes"},
+			},
+		},
+		{
+			Name: "commit",
+			Type: "tuple",
+			Components: []abi.ArgumentMarshaling{
+				{Name: "height", Type: "uint64"},
+				{Name: "round", Type: "uint32"},
+				{Name: "blockId", Type: "tuple", Components: []abi.ArgumentMarshaling{
+					{Name: "hashData", Type: "bytes32"},
+					{Name: "partSetHeader", Type: "tuple", Components: []abi.ArgumentMarshaling{
+						{Name: "total", Type: "uint32"},
+						{Name: "hashData", Type: "bytes32"},
+					}},
+				}},
+				{Name: "commitSigs", Type: "tuple[]", Components: []abi.ArgumentMarshaling{
+					{Name: "flag", Type: "uint8"},
+					{Name: "data", Type: "tuple", Components: []abi.ArgumentMarshaling{
+						{Name: "validatorAddress", Type: "bytes"},
+						{Name: "timestamp", Type: "uint128"},
+						{Name: "hasSignature", Type: "bool"},
+						{Name: "signature", Type: "bytes"},
+					}},
+				}},
+			},
+		},
+	}
+
+	validatorInfoComponents := []abi.ArgumentMarshaling{
+		{Name: "valAddress", Type: "bytes"},
+		{Name: "pubKey", Type: "bytes32"},
+		{Name: "votingPower", Type: "uint64"},
+		{Name: "proposerPriority", Type: "int64"},
+	}
+
+	validatorSetComponents := []abi.ArgumentMarshaling{
+		{Name: "validators", Type: "tuple[]", Components: validatorInfoComponents},
+		{Name: "hasProposer", Type: "bool"},
+		{Name: "proposer", Type: "tuple", Components: validatorInfoComponents},
+		{Name: "totalVotingPower", Type: "uint64"},
+	}
+
+	headerComponents := []abi.ArgumentMarshaling{
+		{Name: "signedHeader", Type: "tuple", Components: signedHeaderComponents},
+		{Name: "validatorSet", Type: "tuple", Components: validatorSetComponents},
+		{Name: "trustedHeight", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "revisionNumber", Type: "uint64"},
+			{Name: "revisionHeight", Type: "uint64"},
+		}},
+		{Name: "trustedNextValidatorSet", Type: "tuple", Components: validatorSetComponents},
+	}
+
+	updateClientMsgType, _ = abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+		{Name: "clientState", Type: "tuple", Components: clientStateComponents},
+		{Name: "trustedConsensusState", Type: "tuple", Components: consensusStateComponents},
+		{Name: "proposedHeader", Type: "tuple", Components: headerComponents},
+		{Name: "time", Type: "uint128"},
+		{Name: "proof", Type: "uint256[8]"},
+		{Name: "commitments", Type: "uint256[2]"},
+		{Name: "commitmentPok", Type: "uint256[2]"},
+	})
+}
 
 type LightBlock struct {
 	SignedHeader commettypes.SignedHeader
@@ -175,17 +300,7 @@ func (s SupportedZkAlgorithm) String() string {
 	}
 }
 
-func GetGenesis(trustedBlock int64, trustingPeriod uint32, trustLevel string, proofType string) (*SP1ICS07TendermintGenesis, error) {
-	// Read RPC endpoint from environment variable
-	rpcEndpoint := os.Getenv("TENDERMINT_RPC_URL")
-	if rpcEndpoint == "" {
-		return nil, fmt.Errorf("TENDERMINT_RPC_URL environment variable is required in .env file")
-	}
-	client, err := rpchttp.New(rpcEndpoint, "/websocket")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RPC client: %w", err)
-	}
-
+func GetGenesis(client *rpchttp.HTTP, trustedBlock int64, trustingPeriod uint32, trustLevel string, proofType string) (*SP1ICS07TendermintGenesis, error) {
 	status, err := client.Status(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
@@ -578,6 +693,30 @@ func ParseInnerOp(innerOp *ics23.InnerOp) tendermintContract.IMembershipMsgsInne
 	}
 }
 
+func EncodeClientState(clientState updateClientContract.IICS07TendermintMsgsClientState) ([]byte, error) {
+	args := abi.Arguments{
+		{Type: clientStateType},
+	}
+	encoded, err := args.Pack(clientState)
+	return encoded, err
+}
+
+func EncodeConsensusState(consensusState updateClientContract.IICS07TendermintMsgsConsensusState) ([]byte, error) {
+	args := abi.Arguments{
+		{Type: consensusStateType},
+	}
+	encoded, err := args.Pack(consensusState)
+	return encoded, err
+
+}
+
+func EncodeUpdateClientMsg(updateClientMsg updateClientContract.IUpdateClientMsgsMsgUpdateClient) ([]byte, error) {
+	args := abi.Arguments{
+		{Type: updateClientMsgType},
+	}
+	encoded, err := args.Pack(updateClientMsg)
+	return encoded, err
+}
 func bytesToBytes32(data []byte) [32]byte {
 	var result [32]byte
 	copy(result[:], data)

@@ -11,9 +11,12 @@ import (
 	"strings"
 
 	contractICS26Router "operator/bindings/ICS26Router"
+	routerContract "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateclient "operator/bindings/UpdateClient"
+	operatorclient "operator/client"
 	services "operator/services"
+	utils "operator/utils"
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -26,17 +29,18 @@ import (
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/gogoproto/proto"
+	ibcwasmtypes "github.com/cosmos/ibc-go/modules/light-clients/08-wasm/v10/types"
+	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	exported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type Handler struct {
 }
 
-func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
+func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, consensusHash []byte) error {
 	privKey := os.Getenv("PRIVATE_KEY")
 	if privKey == "" {
 		return fmt.Errorf("PRIVATE_KEY environment variable is required in .env file")
@@ -44,11 +48,6 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	privateKey, err := keys.RestoreKey(privKey)
 	if err != nil {
 		return fmt.Errorf("failed to restore private key: %w", err)
-	}
-
-	chainIdEth := os.Getenv("CHAIN_ID")
-	if chainIdEth == "" {
-		return fmt.Errorf("CHAIN_ID environment variable is required in .env file")
 	}
 
 	publicKey, err := keys.PublicKey(privateKey)
@@ -66,9 +65,94 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		log.Fatal(err)
 	}
 
-	chainIdInt := big.NewInt(0)
-	chainIdInt, ok := chainIdInt.SetString(chainIdEth, 10)
-	if !ok {
+	chainIdInt, err := ctx.EthClient().ChainID(context.Background())
+	if err != nil {
+		return fmt.Errorf("invalid chain id: %v", err)
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainIdInt)
+	if err != nil {
+		return fmt.Errorf("failed to create auth transactor: %w", err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Value = big.NewInt(0)      // in wei
+	auth.GasLimit = uint64(3000000) // in units
+	auth.GasPrice = gasPrice
+
+	address, tx, _, err := tendermintContract.DeployContractSP1ICS07Tendermint(
+		auth,
+		ctx.EthClient(),
+		*ctx.VerifierContract(),
+		*ctx.MembershipContract(),
+		*ctx.MisbehaviourContract(),
+		*ctx.UpdateClientContract(),
+		clientState,
+		utils.BytesToBytes32(consensusHash),
+		*ctx.RoleManagerAddress(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to deploy ics07 contract: %w", err)
+	}
+	fmt.Println("deployed successful, tx: ", tx)
+	fmt.Println("ICS07 Tendermint Address: ", address.String())
+	ctx.SetClient(address)
+
+	ics26Router, err := routerContract.NewContractICS26Router(*ctx.RouterContract(), ctx.EthClient())
+	if err != nil {
+		return err
+	}
+
+	nonce, err = ctx.EthClient().PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+
+	tx, err = ics26Router.AddClient(
+		auth,
+		"cosmoshub-1",
+		routerContract.IICS02ClientMsgsCounterpartyInfo{
+			ClientId:     "08-wasm-0",
+			MerklePrefix: [][]byte{[]byte(exported.StoreKey), []byte("")},
+		},
+		*ctx.ClientContract(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to deploy ics07 contract: %w", err)
+	}
+
+	return nil
+}
+
+func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
+	privKey := os.Getenv("ETH_PRIVATE_KEY")
+	if privKey == "" {
+		return fmt.Errorf("ETH_PRIVATE_KEY environment variable is required in .env file")
+	}
+	privateKey, err := keys.RestoreKey(privKey)
+	if err != nil {
+		return fmt.Errorf("failed to restore private key: %w", err)
+	}
+
+	publicKey, err := keys.PublicKey(privateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKey)
+	nonce, err := ctx.EthClient().PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	gasPrice, err := ctx.EthClient().SuggestGasPrice(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	chainIdInt, err := ctx.EthClient().ChainID(context.Background())
+	if err != nil {
 		return fmt.Errorf("invalid chain id: %v", err)
 	}
 
@@ -81,14 +165,8 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	auth.GasLimit = uint64(300000) // in units
 	auth.GasPrice = gasPrice
 
-	hexAddress := os.Getenv("CONTRACT_ADDRESS")
-	if hexAddress == "" {
-		return fmt.Errorf("CONTRACT_ADDRESS environment variable is required in .env file")
-	}
-
-	tendermintAddr := common.HexToAddress(hexAddress)
 	ics07Tendermint, err := tendermintContract.NewContractSP1ICS07Tendermint(
-		tendermintAddr,
+		*ctx.ClientContract(),
 		ctx.EthClient(),
 	)
 	if err != nil {
@@ -105,15 +183,7 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 
 	switch msg := msg.(type) {
 	case updateclient.IUpdateClientMsgsMsgUpdateClient:
-		parsedABI, err := abi.JSON(strings.NewReader("../../abi/SP1ICS07Tendermint.json"))
-		if err != nil {
-			panic(err)
-		}
-
-		data, err := parsedABI.Pack(
-			"transfer",
-			msg,
-		)
+		data, err := operatorclient.EncodeUpdateClientMsg(msg)
 		if err != nil {
 			panic(err)
 		}
@@ -140,6 +210,156 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	default:
 		return fmt.Errorf("unsupported message type")
 	}
+
+	return nil
+}
+
+func (h *Handler) CreateEthClient(svcCtx services.Context, clientState exported.ClientState, consensusState exported.ConsensusState) error {
+
+	// Get the private key from environment variable
+	privKeyHex := os.Getenv("COSMOS_PRIVATE_KEY")
+	if privKeyHex == "" {
+		return fmt.Errorf("COSMOS_PRIVATE_KEY environment variable is required in .env file")
+	}
+
+	// Decode the private key
+	privKeyBytes, err := hex.DecodeString(strings.TrimPrefix(privKeyHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to decode private key: %w", err)
+	}
+
+	privKey := secp256k1.PrivKey{Key: privKeyBytes}
+	signerAddr := sdk.AccAddress(privKey.PubKey().Address())
+	fmt.Println("signerAddr: ", signerAddr.String())
+
+	// Get chain configuration from environment
+	chainID := os.Getenv("COSMOS_CHAIN_ID")
+	if chainID == "" {
+		return fmt.Errorf("COSMOS_CHAIN_ID environment variable is required in .env file")
+	}
+
+	// Get gas and fee configuration
+	gasLimit := uint64(200000) // Default gas limit
+	if gasStr := os.Getenv("COSMOS_GAS_LIMIT"); gasStr != "" {
+		if _, err := fmt.Sscanf(gasStr, "%d", &gasLimit); err != nil {
+			return fmt.Errorf("failed to parse COSMOS_GAS_LIMIT: %w", err)
+		}
+	}
+
+	feeDenom := os.Getenv("COSMOS_FEE_DENOM")
+	if feeDenom == "" {
+		feeDenom = "stake" // Default fee denom
+	}
+
+	feeAmount := int64(10000000) // Default fee amount
+	if feeStr := os.Getenv("COSMOS_FEE_AMOUNT"); feeStr != "" {
+		if _, err := fmt.Sscanf(feeStr, "%d", &feeAmount); err != nil {
+			return fmt.Errorf("failed to parse COSMOS_FEE_AMOUNT: %w", err)
+		}
+	}
+
+	// Query account info (account number and sequence) from the chain
+	accountNumber, sequence, err := h.queryAccountInfo(svcCtx, signerAddr.String())
+	if err != nil {
+		return fmt.Errorf("failed to query account info: %w", err)
+	}
+
+	// Setup encoding config
+	interfaceRegistry := codectypes.NewInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
+	authtypes.RegisterInterfaces(interfaceRegistry)
+	channeltypesv2.RegisterInterfaces(interfaceRegistry)
+	clienttypes.RegisterInterfaces(interfaceRegistry)
+	ibcwasmtypes.RegisterInterfaces(interfaceRegistry)
+	cdc := codec.NewProtoCodec(interfaceRegistry)
+	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
+
+	msg, err := clienttypes.NewMsgCreateClient(clientState, consensusState, signerAddr.String())
+	if err != nil {
+		return err
+	}
+
+	// Build the transaction
+	txBuilder := txConfig.NewTxBuilder()
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return fmt.Errorf("failed to set messages: %w", err)
+	}
+
+	txBuilder.SetGasLimit(gasLimit)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(feeDenom, sdkmath.NewInt(feeAmount))))
+
+	// First, set an empty signature to populate signer info for sign bytes generation
+	pubKey := privKey.PubKey()
+	emptySig := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: nil,
+		},
+		Sequence: sequence,
+	}
+	if err := txBuilder.SetSignatures(emptySig); err != nil {
+		return fmt.Errorf("failed to set empty signature: %w", err)
+	}
+
+	// Create signer data
+	signerData := authsigning.SignerData{
+		Address:       signerAddr.String(),
+		ChainID:       chainID,
+		AccountNumber: accountNumber,
+		Sequence:      sequence,
+		PubKey:        pubKey,
+	}
+
+	// Get sign bytes using the adapter function
+	signBytes, err := authsigning.GetSignBytesAdapter(
+		context.Background(),
+		txConfig.SignModeHandler(),
+		sdksigning.SignMode_SIGN_MODE_DIRECT,
+		signerData,
+		txBuilder.GetTx(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get sign bytes: %w", err)
+	}
+
+	// Sign the bytes
+	sigRaw, err := privKey.Sign(signBytes)
+	if err != nil {
+		return fmt.Errorf("failed to sign transaction: %w", err)
+	}
+
+	// Set the actual signature
+	sigV2 := sdksigning.SignatureV2{
+		PubKey: pubKey,
+		Data: &sdksigning.SingleSignatureData{
+			SignMode:  sdksigning.SignMode_SIGN_MODE_DIRECT,
+			Signature: sigRaw,
+		},
+		Sequence: sequence,
+	}
+
+	if err := txBuilder.SetSignatures(sigV2); err != nil {
+		return fmt.Errorf("failed to set signatures: %w", err)
+	}
+
+	// Encode the transaction
+	txBytes, err := txConfig.TxEncoder()(txBuilder.GetTx())
+	if err != nil {
+		return fmt.Errorf("failed to encode transaction: %w", err)
+	}
+
+	// Broadcast the transaction
+	result, err := svcCtx.CosmosClient().BroadcastTxSync(context.Background(), txBytes)
+	if err != nil {
+		return fmt.Errorf("failed to broadcast transaction: %w", err)
+	}
+
+	if result.Code != 0 {
+		return fmt.Errorf("transaction failed with code %d: %s", result.Code, result.Log)
+	}
+
+	log.Printf("Transaction broadcast successfully. Hash: %s", result.Hash.String())
 
 	return nil
 }
@@ -488,6 +708,7 @@ func (h *Handler) queryAccountInfo(svcCtx services.Context, address string) (uin
 
 	// Setup interface registry to decode the account
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
 	authtypes.RegisterInterfaces(interfaceRegistry)
 
 	// Decode the response

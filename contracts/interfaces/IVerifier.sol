@@ -8,7 +8,7 @@ interface IVerifier {
         uint256[2] calldata commitmentPok,
         bytes32[2] calldata signature,
         bytes32 pubkey,
-        bytes32 message
+        bytes calldata message
     ) external returns (bool);
 }
 

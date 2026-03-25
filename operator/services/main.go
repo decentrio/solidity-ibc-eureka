@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"operator/utils"
 	"os"
-	"strings"
 	"time"
 
 	contractICS26Router "operator/bindings/ICS26Router"
@@ -14,27 +13,38 @@ import (
 	"operator/client"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // read abi json file once in runtime
-var tendermintAbiJson []byte
+var tendermintAbiJson *abi.ABI
 var initErr error
 
 func init() {
-	tendermintAbiJson, initErr = os.ReadFile("../../abi/SP1ICS07Tendermint.json")
+	tendermintAbiJson, initErr = tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
 	if initErr != nil {
 		log.Fatal(initErr)
 	}
 }
 
 type TransactionHandler interface {
-	SendTx(ctx Context, msg any) error
+	CreateCosmosClientContract(ctx Context, clientState, consensusHash []byte) error
+	CreateEthClient(ctx Context, clientState ibcexported.ClientState, consensusState ibcexported.ConsensusState) error
+	SendEthTx(ctx Context, msg any) error
 	SendCosmosTx(ctx Context, msg any) error
 	SendCosmosTxBatch(ctx Context, msgs []any) error
 }
 
+type Prover interface {
+	GenerateProof(sig, pub, msg []byte) (
+		proof [8]*big.Int,
+		commitments [2]*big.Int,
+		commitmentPok [2]*big.Int,
+		err error,
+	)
+}
 type EventListener interface {
 	SubscribeCosmos(ctx Context, batchBuilder *BatchBuilder)
 	SubscribeEth(ctx Context)
@@ -54,13 +64,14 @@ type Services struct {
 	txHandler TransactionHandler
 }
 
-func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionHandler, ethConfig, cosmosConfig Config) *Services {
+func New(rpcEndpoint string, eventListener EventListener, txHandler TransactionHandler, prover Prover, ethConfig, cosmosConfig Config) *Services {
 	return &Services{
 		listener:     eventListener,
 		ethConfig:    ethConfig,
 		cosmosConfig: cosmosConfig,
 		worker: &Worker{
-			txHandler: txHandler,
+			txHandler,
+			prover,
 		},
 		BatchPackets: make(chan BatchPackets),
 		BatchBuilder: NewBatchBuidler(),
@@ -86,7 +97,34 @@ func (s *Services) StartLoop() {
 		panic(fmt.Errorf("failed to connect to client: %s: ", err.Error()))
 	}
 
+	ics26Router := os.Getenv("ICS26_ROUTER")
+	if ics26Router == "" {
+		panic(fmt.Errorf("ICS26_ROUTER environment variable is required in .env file"))
+	}
+	wrapVerifier := os.Getenv("WRAP_VERIFIER")
+	if wrapVerifier == "" {
+		panic(fmt.Errorf("WRAP_VERIFIER environment variable is required in .env file"))
+	}
+
+	membership := os.Getenv("MEMBERSHIP")
+	if membership == "" {
+		panic(fmt.Errorf("MEMBERSHIP environment variable is required in .env file"))
+	}
+	misbehaviour := os.Getenv("MISBEHAVIOUR")
+	if misbehaviour == "" {
+		panic(fmt.Errorf("MISBEHAVIOUR environment variable is required in .env file"))
+	}
+	updateClient := os.Getenv("UPDATE_CLIENT")
+	if updateClient == "" {
+		panic(fmt.Errorf("UPDATE_CLIENT environment variable is required in .env file"))
+	}
+	roleManager := os.Getenv("ROLE_MANAGER")
+	if roleManager == "" {
+		panic(fmt.Errorf("ROLE_MANAGER environment variable is required in .env file"))
+	}
+
 	ctx := NewCtx(cosmosClient, ethClient)
+	ctx.SetAddresses(ics26Router, wrapVerifier, membership, misbehaviour, updateClient, roleManager)
 
 	// listen to new tx events on Eth
 	// add it to handler queue
@@ -237,7 +275,7 @@ func (s *Services) StartLoop() {
 					MembershipMsg: calldata,
 				}
 
-				s.txHandler.SendTx(ctx, msgRecvPacket)
+				s.txHandler.SendEthTx(ctx, msgRecvPacket)
 			case Ack:
 				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{2})
 
@@ -315,7 +353,7 @@ func (s *Services) StartLoop() {
 					},
 				}
 
-				s.txHandler.SendTx(ctx, msgAckPacket)
+				s.txHandler.SendEthTx(ctx, msgAckPacket)
 			case Timeout:
 				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{3})
 
@@ -351,6 +389,34 @@ func (s *Services) StartLoop() {
 				ctx.Logger.Println(fmt.Errorf("Invalid packet type"))
 			}
 
+			calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
+			}
+
+			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+			for _, p := range packet.Packet.Payloads {
+				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
+					SourcePort: p.SourcePort,
+					DestPort:   p.DestinationPort,
+					Version:    p.Version,
+					Encoding:   p.Encoding,
+					Value:      p.Value,
+				})
+			}
+
+			msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
+				Packet: contractICS26Router.IICS26RouterMsgsPacket{
+					Sequence:         packet.Packet.Sequence,
+					SourceClient:     packet.Packet.SourceClient,
+					DestClient:       packet.Packet.DestinationClient,
+					TimeoutTimestamp: packet.Packet.TimeoutTimestamp,
+					Payloads:         payloads,
+				},
+				MembershipMsg: calldata,
+			}
+
+			s.txHandler.SendEthTx(ctx, msgRecvPacket)
 		}
 	}
 

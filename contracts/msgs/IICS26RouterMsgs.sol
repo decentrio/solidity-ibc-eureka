@@ -59,22 +59,18 @@ interface IICS26RouterMsgs {
     /// @notice Message for acknowledging packets, submitted by relayer
     /// @param packet The packet to be acknowledged
     /// @param acknowledgement The acknowledgement
-    /// @param proofAcked The proof of the acknowledgement commitment
-    /// @param proofHeight The proof height
+    /// @param membershipMsg The membership msg of the packet
     struct MsgAckPacket {
         Packet packet;
         bytes acknowledgement;
-        bytes proofAcked;
-        IICS02ClientMsgs.Height proofHeight;
+        bytes membershipMsg;
     }
 
     /// @notice Message for timing out packets, submitted by relayer
     /// @param packet The packet to be timed out
-    /// @param proofTimeout The proof of the packet commitment
-    /// @param proofHeight The proof height
+    /// @param nonMembershipMsg The non membership msg of the packet
     struct MsgTimeoutPacket {
         Packet packet;
-        bytes proofTimeout;
-        IICS02ClientMsgs.Height proofHeight;
+        bytes nonMembershipMsg;
     }
 }

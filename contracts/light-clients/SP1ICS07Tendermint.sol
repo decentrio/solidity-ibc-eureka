@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-// solhint-disable gas-strict-inequalities
-
 import { IICS07TendermintMsgs } from "./msgs/IICS07TendermintMsgs.sol";
 import { IUpdateClientMsgs } from "./msgs/IUpdateClientMsgs.sol";
 import { IMembershipMsgs } from "./msgs/IMembershipMsgs.sol";
@@ -18,9 +16,9 @@ import { IMembership } from "../interfaces/IMembership.sol";
 import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
-import { IGroth16Verifier } from "../interfaces/IVerifier.sol";
-import {Groth16Verifier} from "../utils/Groth16Verifier.sol";
+import { IVerifier } from "../interfaces/IVerifier.sol";
 import { Paths } from "./utils/Paths.sol";
+import { Encode } from "../utils/Encode.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
 import { TransientSlot } from "@openzeppelin-contracts/utils/TransientSlot.sol";
 import { AccessControl } from "@openzeppelin-contracts/access/AccessControl.sol";
@@ -37,8 +35,16 @@ contract SP1ICS07Tendermint is
 {
     using TransientSlot for *;
 
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable UPDATE_CLIENT_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable MEMBERSHIP_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY;
+    // /// @inheritdoc ISP1ICS07Tendermint
+    // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
-    IGroth16Verifier public immutable VERIFIER;
+    IVerifier public immutable VERIFIER;
     IMembership public immutable MEMBERSHIP;
     IMisbehaviour public immutable MISBEHAVIOUR;
     IUpdateClient public immutable UPDATE_CLIENT;
@@ -62,6 +68,10 @@ contract SP1ICS07Tendermint is
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
     constructor(
+        // bytes32 updateClientProgramVkey,
+        // bytes32 membershipProgramVkey,
+        // bytes32 updateClientAndMembershipProgramVkey,
+        // bytes32 misbehaviourProgramVkey,
         address verifier,
         address membership_,
         address misbehaviour_,
@@ -70,10 +80,15 @@ contract SP1ICS07Tendermint is
         bytes32 _consensusState,
         address roleManager
     ) {
+        // UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
+        // MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
+        // UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
+        // MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
+
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
-        VERIFIER = Groth16Verifier(verifier);
+        VERIFIER = IVerifier(verifier);
         MEMBERSHIP = IMembership(membership_);
         MISBEHAVIOUR = IMisbehaviour(misbehaviour_);
         UPDATE_CLIENT = IUpdateClient(updateClient_);
@@ -114,10 +129,7 @@ contract SP1ICS07Tendermint is
         returns (ILightClientMsgs.UpdateResult)
     {
         IUpdateClientMsgs.MsgUpdateClient memory msg_ = abi.decode(updateClientMsg, (IUpdateClientMsgs.MsgUpdateClient));
-        IUpdateClientMsgs.UpdateClientOutput memory output =
-            UPDATE_CLIENT.updateClient(
-                msg_
-            );
+        IUpdateClientMsgs.UpdateClientOutput memory output = UPDATE_CLIENT.updateClient(msg_);
 
         _validateUpdateClientOutput(output);
 
@@ -134,14 +146,26 @@ contract SP1ICS07Tendermint is
             return ILightClientMsgs.UpdateResult.NoOp;
         }
 
-        // TODO: take input to put in verifying proof
-        // uint256[8] calldata proof = msg_.proof;
-        // if (proof[4] == 0 && proof[5] == 0 && proof[6] == 0 && proof[7] == 0) {
-        //     uint256[4] memory compressedProof = [proof[0], proof[1], proof[2], proof[3]];
-        //     VERIFIER.verifyCompressedProof(compressedProof, input);
-        // } else {
-        //     VERIFIER.verifyProof(proof, input);
-        // }
+        // TODO: multi signatures
+	    string memory chainId = msg_.proposedHeader.signedHeader.header.chainId;
+        IICS07TendermintMsgs.BlockCommit memory untrustedHeaderCommit = msg_.proposedHeader.signedHeader.commit;
+        bytes32 pubkey = msg_.proposedHeader.validatorSet.validators[0].pubKey;
+        bytes memory sig = untrustedHeaderCommit.commitSigs[0].data.signature;
+        require(sig.length == 64, "invalid signature length");
+        bytes32[2] memory signature;
+        assembly {
+            mstore(signature, mload(add(sig, 32)))
+            mstore(add(signature, 32), mload(add(sig, 64)))
+        }
+        bool proofValid = VERIFIER.verifyProof(
+            msg_.proof,
+            msg_.commitments,
+            msg_.commitmentPok,
+            signature,
+            pubkey,
+            Encode.voteSignBytes(untrustedHeaderCommit, chainId, 0)
+        );
+        require(proofValid, ProofVerificationFailed());
 
         return updateResult;
     }
@@ -261,40 +285,8 @@ contract SP1ICS07Tendermint is
         );
 
         IMembershipMsgs.MembershipOutput memory output =
-<<<<<<< HEAD
             MEMBERSHIP.membership(appHash, kvPairs, merkleProofs);
         _validateMembershipOutput(output.commitmentRoot, height.revisionHeight, trustedConsensusState);
-=======
-            abi.decode(proof.sp1Proof.publicValues, (IMembershipMsgs.MembershipOutput));
-        require(
-            output.kvPairs.length > 0 && output.kvPairs.length <= type(uint16).max,
-            LengthIsOutOfRange(output.kvPairs.length, 1, type(uint16).max)
-        );
-
-        {
-            // loop through the key-value pairs and validate them
-            bool found = false;
-            for (uint256 i = 0; i < output.kvPairs.length; ++i) {
-                if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
-                    continue;
-                }
-
-                bytes memory value = output.kvPairs[i].value;
-                require(
-                    value.length == kvValue.length && keccak256(value) == keccak256(kvValue),
-                    MembershipProofValueMismatch(kvValue, value)
-                );
-
-                found = true;
-                break;
-            }
-            require(found, MembershipProofKeyNotFound(kvPath));
-        }
-
-        _validateMembershipOutput(output.commitmentRoot, proofHeight.revisionHeight, proof.trustedConsensusState);
-
-        _verifySP1Proof(proof.sp1Proof);
->>>>>>> 61d53368aa94b3ca9bf28e630690361997951425
 
         // We avoid the cost of caching for single kv pairs, as reusing the proof is not necessary
         if (output.kvPairs.length > 1) {
@@ -310,7 +302,7 @@ contract SP1ICS07Tendermint is
     /// @param kvPath The path of the key-value pair.
     /// @param kvValue The value of the key-value pair.
     /// @return The timestamp of the new consensus state.
-    // solhint-disable-next-line code-complexity,function-max-lines
+    // solhint-disable-next-line code-complexity
     function _handleSP1UpdateClientAndMembership(
         IICS02ClientMsgs.Height calldata proofHeight,
         bytes memory proofBytes,
@@ -371,7 +363,7 @@ contract SP1ICS07Tendermint is
         // loop through the key-value pairs and validate them
         {
             bool found = false;
-            for (uint256 i = 0; i < output.kvPairs.length; ++i) {
+            for (uint256 i = 0; i < output.kvPairs.length; i++) {
                 if (!Paths.equal(output.kvPairs[i].path, kvPath)) {
                     continue;
                 }
@@ -562,7 +554,7 @@ contract SP1ICS07Tendermint is
     /// @dev WARNING: Transient store is not reverted even if a message within a transaction reverts.
     /// @dev WARNING: This function must be called after all proof and validation checks.
     function _cacheKvPairs(uint64 proofHeight, IMembershipMsgs.KVPair[] memory kvPairs, uint256 timestamp) private {
-        for (uint256 i = 0; i < kvPairs.length; ++i) {
+        for (uint256 i = 0; i < kvPairs.length; i++) {
             bytes32 kvPairHash = keccak256(abi.encode(proofHeight, kvPairs[i]));
             kvPairHash.asUint256().tstore(timestamp);
         }
