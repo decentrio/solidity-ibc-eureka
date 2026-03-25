@@ -9,6 +9,7 @@ import (
 	"math/big"
 	contractICS26Router "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
+	"operator/client"
 	operatorclient "operator/client"
 	"operator/prover"
 	"operator/services"
@@ -162,12 +163,24 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 			latestEthTimestamp.LatestUpdateTime = time.Now()
 			latestEthTimestamp.LatestUpdateHeight = uint64(latestLightBlock.BlockHeight)
 
-			ibcPath := utils.IbcCommitmentPath(packet)
-			value, merkleProof, err := utils.ProvePath(ctx.CosmosClient(), ibcPath, uint64(latestLightBlock.BlockHeight))
+			ibcPath := utils.IbcCommitmentPath(packet, []byte{1})
+			value, proof, err := client.ProvePath(ctx.CosmosClient(), latestLightBlock.BlockHeight, ibcPath)
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to prove path: %s", err.Error()))
 				continue
 			}
+
+			merkleProof := tendermintContract.IMembershipMsgsMerkleProof{
+				Proofs: []tendermintContract.IMembershipMsgsCommitmentProof{},
+			}
+			for _, p := range proof.Proofs {
+				commitmentProof, err := client.ParseCommitmentProof(p)
+				if err != nil {
+					ctx.Logger.Println(fmt.Errorf("failed to parse commitment proof: %w", err))
+				}
+				merkleProof.Proofs = append(merkleProof.Proofs, *commitmentProof)
+			}
+
 			membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
 				Height: tendermintContract.IICS02ClientMsgsHeight{
 					RevisionHeight: uint64(latestLightBlock.BlockHeight),
@@ -180,7 +193,7 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 					},
 				},
 				MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
-					*merkleProof,
+					merkleProof,
 				},
 				// current appHash
 				AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),

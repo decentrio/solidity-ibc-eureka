@@ -44,8 +44,8 @@ func DefaultConfig() Config {
 		},
 		IntervalType: timestamp,
 		BatchConfig: BatchConfig{
-			BatchPeriods: time.Second * 10, // default each batch waits for 10 seconds
-			BatchSize:    10,               // default 10 packets per batch
+			BatchPeriods: time.Second * 3, // default each batch waits for 10 seconds
+			BatchSize:    10,              // default 10 packets per batch
 		},
 	}
 }
