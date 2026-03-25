@@ -195,7 +195,6 @@ where
         .await?;
 
         let calls = all_msgs.into_iter().map(|msg| match msg {
-            routerCalls::timeoutPacket(call) => call.abi_encode(),
             routerCalls::recvPacket(call) => call.abi_encode(),
             routerCalls::ackPacket(call) => call.abi_encode(),
             _ => unreachable!(),

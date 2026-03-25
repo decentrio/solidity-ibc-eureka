@@ -16,8 +16,12 @@ import (
 )
 
 const COMETBFT_SEND_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgTransfer'"
+const COMETBFT_ACK_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgAcknowledgement'"
+const COMETBFT_TIMEOUT_PACKET_EVENT = "tm.event = 'Tx' AND message.action = '/ibc.applications.transfer.v1.MsgTimeout'"
+
 const EVENT_SEND_PACKET_FIELD = "send_packet.encoded_packet_hex"
-const EVENT_TX_HASH_FIELD = "tx.hash"
+const EVENT_ACK_PACKET_FIELD = "acknowledge_packet.encoded_packet_hex"
+const EVENT_TIMEOUT_PACKET_FIELD = "timeout_packet.encoded_packet_hex"
 
 type Subscriber struct {
 }
@@ -27,14 +31,26 @@ func NewSubscriber() *Subscriber {
 }
 
 func (s *Subscriber) SubscribeCosmos(ctx services.Context, batchBuilder *services.BatchBuilder) {
-	sub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_SEND_PACKET_EVENT)
+	c, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sendPacketSub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_SEND_PACKET_EVENT)
 	if err != nil {
 		ctx.Logger.Println(err.Error())
 	}
+	ackPacketSub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_ACK_PACKET_EVENT)
+	if err != nil {
+		ctx.Logger.Println(err.Error())
+	}
+	timeoutPacketSub, err := ctx.CosmosClient().WSEvents.Subscribe(context.Background(), "", COMETBFT_TIMEOUT_PACKET_EVENT)
+	if err != nil {
+		ctx.Logger.Println(err.Error())
+	}
+	defer ctx.CosmosClient().UnsubscribeAll(context.Background(), "")
 
 	for {
 		select {
-		case e := <-sub:
+		case e := <-sendPacketSub:
 			// handle event
 			sendPacketEvent := e.Events[EVENT_SEND_PACKET_FIELD]
 			if sendPacketEvent == nil {
@@ -58,8 +74,65 @@ func (s *Subscriber) SubscribeCosmos(ctx services.Context, batchBuilder *service
 			}
 
 			batchBuilder.InsertPacket(services.Packet{
-				Packet: &packet,
+				PacketType: services.Send,
+				Packet:     &packet,
 			})
+		case e := <-ackPacketSub:
+			// handle event
+			ackPacketEvent := e.Events[EVENT_ACK_PACKET_FIELD]
+			if ackPacketEvent == nil {
+				continue
+			}
+
+			packetEncodedStr := ackPacketEvent[0]
+			packetBytes, err := hex.DecodeString(packetEncodedStr)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to decode packet hex: %s", err.Error()))
+				continue
+			}
+
+			var packet channeltypesv2.Packet
+			err = proto.Unmarshal(packetBytes, &packet)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to unmarshal packet: %s", err.Error()))
+				continue
+			}
+
+			batchBuilder.InsertPacket(services.Packet{
+				PacketType: services.Ack,
+				Packet:     &packet,
+			})
+		case e := <-timeoutPacketSub:
+			// handle event
+			timeoutPacketEvent := e.Events[EVENT_TIMEOUT_PACKET_FIELD]
+			if timeoutPacketEvent == nil {
+				continue
+			}
+
+			packetEncodedStr := timeoutPacketEvent[0]
+			packetBytes, err := hex.DecodeString(packetEncodedStr)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to decode packet hex: %s", err.Error()))
+				continue
+			}
+
+			var packet channeltypesv2.Packet
+			err = proto.Unmarshal(packetBytes, &packet)
+			if err != nil {
+				// TODO handle log here
+				ctx.Logger.Println(fmt.Errorf("Failed to unmarshal packet: %s", err.Error()))
+				continue
+			}
+
+			batchBuilder.InsertPacket(services.Packet{
+				PacketType: services.Timeout,
+				Packet:     &packet,
+			})
+		case <-c.Done():
+			return
 		}
 	}
 }
