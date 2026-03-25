@@ -11,7 +11,7 @@ interface IVerifier {
     /// @param commitmentPok The proof of knowledge for commitments (2 uint256s)
     /// @param signature The Ed25519 signature: [R (32 bytes compressed), S (32 bytes scalar)]
     /// @param pubkey The Ed25519 public key (32 bytes compressed)
-    /// @param message The signed message hash (bytes32)
+    /// @param message The raw signed message bytes (used in SHA512(R || pubkey || message))
     function verifyProof(
         uint256[8] calldata proof,
         uint256[2] calldata commitments,
