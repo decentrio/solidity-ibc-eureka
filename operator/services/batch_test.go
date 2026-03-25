@@ -8,13 +8,12 @@ import (
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 )
 
-func makePacket(seqNum uint64, fromEth bool) Packet {
+func makePacket(seqNum uint64, pktType PacketType) Packet {
 	return Packet{
+		PacketType: pktType,
 		Packet: &channeltypesv2.Packet{
 			Sequence: seqNum,
 		},
-		FromEth:   fromEth,
-		EthHeight: seqNum,
 	}
 }
 
@@ -33,7 +32,7 @@ func TestNewBatchBuidler(t *testing.T) {
 
 func TestInsertPacket_Single(t *testing.T) {
 	bb := NewBatchBuidler()
-	pkt := makePacket(1, true)
+	pkt := makePacket(1, Send)
 
 	bb.InsertPacket(pkt)
 
@@ -46,8 +45,8 @@ func TestInsertPacket_Single(t *testing.T) {
 	if bb.packets[0].Packet.Sequence != 1 {
 		t.Fatalf("expected sequence 1, got %d", bb.packets[0].Packet.Sequence)
 	}
-	if !bb.packets[0].FromEth {
-		t.Fatal("expected FromEth to be true")
+	if bb.packets[0].PacketType != Send {
+		t.Fatalf("expected PacketType Send, got %d", bb.packets[0].PacketType)
 	}
 }
 
@@ -55,7 +54,7 @@ func TestInsertPacket_Multiple(t *testing.T) {
 	bb := NewBatchBuidler()
 	count := 5
 	for i := 0; i < count; i++ {
-		bb.InsertPacket(makePacket(uint64(i+1), i%2 == 0))
+		bb.InsertPacket(makePacket(uint64(i+1), Send))
 	}
 
 	bb.mtx.Lock()
@@ -84,7 +83,7 @@ func TestInsertPacket_Concurrent(t *testing.T) {
 		go func(offset int) {
 			defer wg.Done()
 			for i := 0; i < packetsPerGoroutine; i++ {
-				bb.InsertPacket(makePacket(uint64(offset*packetsPerGoroutine+i), true))
+				bb.InsertPacket(makePacket(uint64(offset*packetsPerGoroutine+i), Send))
 			}
 		}(g)
 	}
@@ -102,7 +101,7 @@ func TestInsertPacket_Concurrent(t *testing.T) {
 func TestClearBatch(t *testing.T) {
 	bb := NewBatchBuidler()
 	for i := 0; i < 5; i++ {
-		bb.InsertPacket(makePacket(uint64(i+1), false))
+		bb.InsertPacket(makePacket(uint64(i+1), Send))
 	}
 
 	bb.mtx.Lock()
@@ -131,7 +130,7 @@ func TestCheckBatch_ExceedsBatchSize(t *testing.T) {
 
 	// Insert more than BatchSize packets (> 3, so need 4+)
 	for i := 0; i < 5; i++ {
-		bb.InsertPacket(makePacket(uint64(i+1), true))
+		bb.InsertPacket(makePacket(uint64(i+1), Send))
 	}
 
 	ch := make(chan BatchPackets, 1)
@@ -164,8 +163,8 @@ func TestCheckBatch_PastBatchPeriods(t *testing.T) {
 		BatchPeriods: time.Second * 1,
 	}
 
-	bb.InsertPacket(makePacket(1, false))
-	bb.InsertPacket(makePacket(2, false))
+	bb.InsertPacket(makePacket(1, Send))
+	bb.InsertPacket(makePacket(2, Send))
 
 	ch := make(chan BatchPackets, 1)
 	bb.CheckBatch(config, ch)
@@ -194,8 +193,8 @@ func TestCheckBatch_BelowSizeAndBeforePeriod(t *testing.T) {
 		BatchPeriods: time.Minute * 10,
 	}
 
-	bb.InsertPacket(makePacket(1, true))
-	bb.InsertPacket(makePacket(2, true))
+	bb.InsertPacket(makePacket(1, Send))
+	bb.InsertPacket(makePacket(2, Send))
 
 	ch := make(chan BatchPackets, 1)
 	bb.CheckBatch(config, ch)

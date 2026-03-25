@@ -229,9 +229,8 @@ func (s *Subscriber) SubscribeEth(ctx services.Context, batchBuilder *services.B
 			ctx.Logger.Printf("SendPacket event received: clientId=%x, sequence=%s", ev.ClientId, ev.Sequence.String())
 			cosmosPacket := ethPacketToCosmosPacket(ev.Packet, ev.Sequence)
 			batchBuilder.InsertPacket(services.Packet{
-				Packet:    &cosmosPacket,
-				FromEth:   true,
-				EthHeight: ev.Raw.BlockNumber,
+				PacketType: services.Send,
+				Packet:     &cosmosPacket,
 			})
 
 		case ev := <-writeAckCh:

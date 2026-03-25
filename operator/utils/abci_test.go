@@ -64,7 +64,7 @@ func TestIbcCommitmentPath_NormalPacket(t *testing.T) {
 		SourceClient: "07-tendermint-0",
 	}
 
-	path := IbcCommitmentPath(packet)
+	path := IbcCommitmentPath(packet, []byte{1})
 
 	if len(path) != 2 {
 		t.Fatalf("expected 2 path elements, got %d", len(path))
@@ -94,7 +94,7 @@ func TestIbcCommitmentPath_HighSequence(t *testing.T) {
 		SourceClient: "07-tendermint-0",
 	}
 
-	path := IbcCommitmentPath(packet)
+	path := IbcCommitmentPath(packet, []byte{1})
 
 	if len(path) != 2 {
 		t.Fatalf("expected 2 path elements, got %d", len(path))
