@@ -174,7 +174,7 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	}
 
 	icS26Router, err := contractICS26Router.NewContractICS26Router(
-		tendermintAddr,
+		*ctx.RouterContract(),
 		ctx.EthClient(),
 	)
 	if err != nil {
