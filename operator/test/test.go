@@ -6,9 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"operator/utils"
 	"os"
 	"time"
+
+	tendermintclient "operator/client"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cosmos/gogoproto/proto"
@@ -97,7 +98,7 @@ func subscribeCosmos(logger *log.Logger, client *rpchttp.HTTP) {
 			path = append(path, []byte{1}...)
 			path = append(path, sequenceBytes...)
 			// target height are the latest block height
-			_, merkleProof, err := utils.ProvePath(client, [][]byte{[]byte("ibc"), path}, uint64(revisionHeight))
+			_, merkleProof, err := tendermintclient.ProvePath(client, revisionHeight, [][]byte{[]byte("ibc"), path})
 
 			fmt.Println(merkleProof)
 			fmt.Println(err)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	contractICS26Router "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateclient "operator/bindings/UpdateClient"
 	services "operator/services"
@@ -94,6 +95,14 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		return fmt.Errorf("failed to create ICS07 Tendermint contract: %w", err)
 	}
 
+	icS26Router, err := contractICS26Router.NewContractICS26Router(
+		tendermintAddr,
+		ctx.EthClient(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create ICS07 Tendermint contract: %w", err)
+	}
+
 	switch msg := msg.(type) {
 	case updateclient.IUpdateClientMsgsMsgUpdateClient:
 		parsedABI, err := abi.JSON(strings.NewReader("../../abi/SP1ICS07Tendermint.json"))
@@ -120,6 +129,11 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		}
 	case tendermintContract.ILightClientMsgsMsgVerifyNonMembership:
 		_, err := ics07Tendermint.VerifyNonMembership(auth, msg)
+		if err != nil {
+			return fmt.Errorf("failed to verify membership: %w", err)
+		}
+	case contractICS26Router.IICS26RouterMsgsMsgRecvPacket:
+		_, err := icS26Router.RecvPacket(auth, msg)
 		if err != nil {
 			return fmt.Errorf("failed to verify membership: %w", err)
 		}

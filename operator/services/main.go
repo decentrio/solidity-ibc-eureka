@@ -11,6 +11,7 @@ import (
 
 	contractICS26Router "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
+	"operator/client"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -132,8 +133,8 @@ func (s *Services) StartLoop() {
 	// check for batch builder
 	go func() {
 		for {
-			// check for batch every 10 seconds
-			time.Sleep(time.Second * 10)
+			// check for batch every 3 seconds
+			time.Sleep(time.Second * 3)
 			s.BatchBuilder.CheckBatch(ctx.Config.BatchConfig, s.BatchPackets)
 		}
 	}()
@@ -161,70 +162,195 @@ func (s *Services) StartLoop() {
 
 		// handle packets in batch
 		for _, packet := range batch.Packets {
+			switch packet.PacketType {
+			case Send:
+				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{1})
 
-			ibcPath := utils.IbcCommitmentPath(*packet.Packet)
+				// target height are the latest block height
+				value, proof, err := client.ProvePath(ctx.CosmosClient(), latestLightBlock.BlockHeight, ibcPath)
 
-			// target height are the latest block height
-			value, merkleProof, err := utils.ProvePath(ctx.CosmosClient(), ibcPath, uint64(latestLightBlock.BlockHeight))
+				merkleProof := tendermintContract.IMembershipMsgsMerkleProof{
+					Proofs: []tendermintContract.IMembershipMsgsCommitmentProof{},
+				}
+				for _, p := range proof.Proofs {
+					commitmentProof, err := client.ParseCommitmentProof(p)
+					if err != nil {
+						ctx.Logger.Println(fmt.Errorf("failed to parse commitment proof: %w", err))
+					}
+					merkleProof.Proofs = append(merkleProof.Proofs, *commitmentProof)
+				}
 
-			membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
-				Height: tendermintContract.IICS02ClientMsgsHeight{
-					RevisionHeight: uint64(latestLightBlock.BlockHeight),
-					RevisionNumber: 0,
-				},
-				KvPairs: []tendermintContract.IMembershipMsgsKVPair{
-					{
-						Path:  ibcPath,
-						Value: utils.BytesToBytes32(value),
+				membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
+					Height: tendermintContract.IICS02ClientMsgsHeight{
+						RevisionHeight: uint64(latestLightBlock.BlockHeight),
+						RevisionNumber: 0,
 					},
-				},
-				MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
-					*merkleProof,
-				},
-				// current appHash
-				AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
-				// trusted consensus from revision height block
-				TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-					Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
-					Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
-					NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
-				},
-				MembershipType: 1,
+					KvPairs: []tendermintContract.IMembershipMsgsKVPair{
+						{
+							Path:  ibcPath,
+							Value: utils.BytesToBytes32(value),
+						},
+					},
+					MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
+						merkleProof,
+					},
+					// current appHash
+					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
+					// trusted consensus from revision height block
+					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
+					},
+					MembershipType: 1,
+				}
+
+				parsedABI, err := abi.JSON(strings.NewReader(string(tendermintAbiJson)))
+				if err != nil {
+					ctx.Logger.Println(fmt.Errorf("Failed to read abi json file: %s", err.Error()))
+				}
+
+				calldata, err := parsedABI.Pack("verifyMembership", membershipMsg)
+				if err != nil {
+					ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
+				}
+
+				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+				for _, p := range packet.Packet.Payloads {
+					payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
+						SourcePort: p.SourcePort,
+						DestPort:   p.DestinationPort,
+						Version:    p.Version,
+						Encoding:   p.Encoding,
+						Value:      p.Value,
+					})
+				}
+
+				msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
+					Packet: contractICS26Router.IICS26RouterMsgsPacket{
+						Sequence:         packet.Packet.Sequence,
+						SourceClient:     packet.Packet.SourceClient,
+						DestClient:       packet.Packet.DestinationClient,
+						TimeoutTimestamp: packet.Packet.TimeoutTimestamp,
+						Payloads:         payloads,
+					},
+					MembershipMsg: calldata,
+				}
+
+				s.txHandler.SendTx(ctx, msgRecvPacket)
+			case Ack:
+				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{2})
+
+				// target height are the latest block height
+				value, proof, err := client.ProvePath(ctx.CosmosClient(), latestLightBlock.BlockHeight, ibcPath)
+				merkleProof := tendermintContract.IMembershipMsgsMerkleProof{
+					Proofs: []tendermintContract.IMembershipMsgsCommitmentProof{},
+				}
+				for _, p := range proof.Proofs {
+					commitmentProof, err := client.ParseCommitmentProof(p)
+					if err != nil {
+						ctx.Logger.Println(fmt.Errorf("failed to parse commitment proof: %w", err))
+					}
+					merkleProof.Proofs = append(merkleProof.Proofs, *commitmentProof)
+				}
+
+				membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyMembership{
+					Height: tendermintContract.IICS02ClientMsgsHeight{
+						RevisionHeight: uint64(latestLightBlock.BlockHeight),
+						RevisionNumber: 0,
+					},
+					KvPairs: []tendermintContract.IMembershipMsgsKVPair{
+						{
+							Path:  ibcPath,
+							Value: utils.BytesToBytes32(value),
+						},
+					},
+					MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
+						merkleProof,
+					},
+					// current appHash
+					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
+					// trusted consensus from revision height block
+					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
+					},
+					MembershipType: 1,
+				}
+
+				parsedABI, err := abi.JSON(strings.NewReader(string(tendermintAbiJson)))
+				if err != nil {
+					ctx.Logger.Println(fmt.Errorf("Failed to read abi json file: %s", err.Error()))
+				}
+
+				calldata, err := parsedABI.Pack("verifyMembership", membershipMsg)
+				if err != nil {
+					ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
+				}
+
+				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+				for _, p := range packet.Packet.Payloads {
+					payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
+						SourcePort: p.SourcePort,
+						DestPort:   p.DestinationPort,
+						Version:    p.Version,
+						Encoding:   p.Encoding,
+						Value:      p.Value,
+					})
+				}
+
+				msgAckPacket := contractICS26Router.IICS26RouterMsgsMsgAckPacket{
+					Packet: contractICS26Router.IICS26RouterMsgsPacket{
+						Sequence:         packet.Packet.Sequence,
+						SourceClient:     packet.Packet.SourceClient,
+						DestClient:       packet.Packet.DestinationClient,
+						TimeoutTimestamp: packet.Packet.TimeoutTimestamp,
+						Payloads:         payloads,
+					},
+
+					ProofHeight: contractICS26Router.IICS02ClientMsgsHeight{
+						RevisionNumber: 0,
+						RevisionHeight: 0,
+					},
+				}
+
+				s.txHandler.SendTx(ctx, msgAckPacket)
+			case Timeout:
+				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{3})
+
+				// target height are the latest block height
+				value, merkleProof, err := client.ProvePath(ctx.CosmosClient(), latestLightBlock.BlockHeight, ibcPath)
+
+				membershipMsg := tendermintContract.ILightClientMsgsMsgVerifyNonMembership{
+					Height: tendermintContract.IICS02ClientMsgsHeight{
+						RevisionHeight: uint64(latestLightBlock.BlockHeight),
+						RevisionNumber: 0,
+					},
+					KvPairs: []tendermintContract.IMembershipMsgsKVPair{
+						{
+							Path:  ibcPath,
+							Value: utils.BytesToBytes32(value),
+						},
+					},
+					MerkleProofs: []tendermintContract.IMembershipMsgsMerkleProof{
+						*merkleProof,
+					},
+					// current appHash
+					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
+					// trusted consensus from revision height block
+					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
+					},
+					MembershipType: 1,
+				}
+
+			default:
+				ctx.Logger.Println(fmt.Errorf("Invalid packet type"))
 			}
 
-			parsedABI, err := abi.JSON(strings.NewReader(string(tendermintAbiJson)))
-			if err != nil {
-				ctx.Logger.Println(fmt.Errorf("Failed to read abi json file: %s", err.Error()))
-			}
-
-			calldata, err := parsedABI.Pack("verifyMembership", membershipMsg)
-			if err != nil {
-				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
-			}
-
-			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
-			for _, p := range packet.Packet.Payloads {
-				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
-					SourcePort: p.SourcePort,
-					DestPort:   p.DestinationPort,
-					Version:    p.Version,
-					Encoding:   p.Encoding,
-					Value:      p.Value,
-				})
-			}
-
-			msgRecvPacket := contractICS26Router.IICS26RouterMsgsMsgRecvPacket{
-				Packet: contractICS26Router.IICS26RouterMsgsPacket{
-					Sequence:         packet.Packet.Sequence,
-					SourceClient:     packet.Packet.SourceClient,
-					DestClient:       packet.Packet.DestinationClient,
-					TimeoutTimestamp: packet.Packet.TimeoutTimestamp,
-					Payloads:         payloads,
-				},
-				MembershipMsg: calldata,
-			}
-
-			s.txHandler.SendTx(ctx, msgRecvPacket)
 		}
 	}
 
