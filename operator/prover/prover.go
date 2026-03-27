@@ -11,8 +11,10 @@ import (
 
 	"filippo.io/edwards25519"
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16_bn254 "github.com/consensys/gnark/backend/groth16/bn254"
+	"github.com/consensys/gnark/backend/solidity"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
@@ -22,9 +24,10 @@ import (
 type EcipProver struct {
 	r1cs constraint.ConstraintSystem
 	pk   groth16.ProvingKey
+	vk   groth16.VerifyingKey
 }
 
-func NewProver(r1csPath, pkPath string) (*EcipProver, error) {
+func NewProver(r1csPath, pkPath, vkPath string) (*EcipProver, error) {
 	r1csFile, err := os.Open(r1csPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open r1cs file: %w", err)
@@ -47,9 +50,20 @@ func NewProver(r1csPath, pkPath string) (*EcipProver, error) {
 		return nil, fmt.Errorf("failed to read proving key: %w", err)
 	}
 
+	vk := groth16.NewVerifyingKey(ecc.BN254)
+	vkFile, err := os.Open(vkPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open verifying key file: %w", err)
+	}
+	defer vkFile.Close()
+	if _, err := vk.ReadFrom(vkFile); err != nil {
+		return nil, fmt.Errorf("failed to read verifying key: %w", err)
+	}
+
 	return &EcipProver{
-		r1cs,
-		pk,
+		r1cs: r1cs,
+		pk:   pk,
+		vk:   vk,
 	}, nil
 }
 
@@ -98,6 +112,10 @@ func (p *EcipProver) GenerateProof(sig, pub, msg []byte) (
 	hasher.Write(pub)
 	hasher.Write(msg)
 	sum := hasher.Sum(nil)
+	fmt.Printf("[Prover] msg (signBytes) hex: %x\n", msg)
+	fmt.Printf("[Prover] msg length: %d\n", len(msg))
+	fmt.Printf("[Prover] SHA512 input: R(%x) + pub(%x) + msg(%d bytes)\n", R, pub, len(msg))
+	fmt.Printf("[Prover] SHA512 output: %x\n", sum)
 
 	H, hErr := edwards25519.NewScalar().SetUniformBytes(sum)
 	if hErr != nil {
@@ -105,6 +123,26 @@ func (p *EcipProver) GenerateProof(sig, pub, msg []byte) (
 		return
 	}
 	h := utils.ScalarToBigInt(H)
+
+	// Debug: print public inputs for comparison with Solidity WrapperVerifier
+	fmt.Printf("[Prover] R bytes (hex): %x\n", R)
+	fmt.Printf("[Prover] S bytes (hex): %x\n", sig[32:])
+	fmt.Printf("[Prover] pub bytes (hex): %x\n", pub)
+	fmt.Printf("[Prover] rX = %s\n", rX.Text(16))
+	fmt.Printf("[Prover] rY = %s\n", rY.Text(16))
+	fmt.Printf("[Prover] s  = %s\n", s.Text(16))
+	fmt.Printf("[Prover] h  = %s\n", h.Text(16))
+	fmt.Printf("[Prover] aX = %s\n", aX.Text(16))
+	fmt.Printf("[Prover] aY = %s\n", aY.Text(16))
+	// Print 24 limbs (4 per value, LE order)
+	for label, val := range map[string]*big.Int{"rX": rX, "rY": rY, "S": s, "H": h, "aX": aX, "aY": aY} {
+		mask64 := new(big.Int).SetUint64(0xffffffffffffffff)
+		for i := 0; i < 4; i++ {
+			limb := new(big.Int).Rsh(val, uint(i*64))
+			limb.And(limb, mask64)
+			fmt.Printf("[Prover] %s limb[%d] = %d\n", label, i, limb)
+		}
+	}
 
 	// Build witness assignment
 	assignment := PreHashCircuit[Fp25519, Fr25519]{
@@ -131,12 +169,20 @@ func (p *EcipProver) GenerateProof(sig, pub, msg []byte) (
 		return
 	}
 
-	// Generate proof
-	gnarkProof, pErr := groth16.Prove(p.r1cs, p.pk, witness)
+	// Generate proof — use keccak256 for commitment hash to match Solidity verifier
+	gnarkProof, pErr := groth16.Prove(p.r1cs, p.pk, witness, solidity.WithProverTargetSolidityVerifier(backend.GROTH16))
 	if pErr != nil {
 		err = fmt.Errorf("failed to generate proof: %w", pErr)
 		return
 	}
+
+	// Local verification with VK (same keccak256 hash as Solidity)
+	pubWitness, _ := witness.Public()
+	if vErr := groth16.Verify(gnarkProof, p.vk, pubWitness, solidity.WithVerifierTargetSolidityVerifier(backend.GROTH16)); vErr != nil {
+		err = fmt.Errorf("LOCAL VERIFICATION FAILED: %w", vErr)
+		return
+	}
+	fmt.Println("[Prover] Local gnark verification PASSED")
 
 	// Convert to Solidity-compatible format
 	return ProofToBigInts(gnarkProof)
@@ -165,11 +211,12 @@ func ProofToBigInts(proof groth16.Proof) ([8]*big.Int, [2]*big.Int, [2]*big.Int,
 	p.Ar.X.BigInt(out[0])
 	p.Ar.Y.BigInt(out[1])
 
-	// B (G2) — NOTE the order (imag, real) for Solidity
-	p.Bs.X.A0.BigInt(out[2])
-	p.Bs.X.A1.BigInt(out[3])
-	p.Bs.Y.A0.BigInt(out[4])
-	p.Bs.Y.A1.BigInt(out[5])
+	// B (G2) — EIP-197 and gnark's MarshalSolidity expect (A1, A0) order
+	// A1 = imaginary part first, A0 = real part second
+	p.Bs.X.A1.BigInt(out[2])
+	p.Bs.X.A0.BigInt(out[3])
+	p.Bs.Y.A1.BigInt(out[4])
+	p.Bs.Y.A0.BigInt(out[5])
 
 	// C (G1)
 	p.Krs.X.BigInt(out[6])
@@ -180,5 +227,5 @@ func ProofToBigInts(proof groth16.Proof) ([8]*big.Int, [2]*big.Int, [2]*big.Int,
 
 	p.Commitments[0].X.BigInt(commitments[0])
 	p.Commitments[0].Y.BigInt(commitments[1])
-	return out, commitmentPoks, commitments, nil
+	return out, commitments, commitmentPoks, nil
 }

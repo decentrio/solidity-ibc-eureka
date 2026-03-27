@@ -7,11 +7,10 @@ killall gaiad || true
 rm -rf $HOME/.gaia
 
 # Run eth chain
-kurtosis run --enclave my-testnet github.com/ethpandaops/ethereum-package
+kurtosis run --enclave my-testnet github.com/ethpandaops/ethereum-package --args-file eth-network-params.yaml
 
 sleep 30
 
-CHAIN_ID="test-ibc-eth"
 ETH_RPC=$(kurtosis enclave inspect my-testnet \
 | perl -ne '
   if (/el-1-geth-lighthouse/) { $in=1 }
@@ -37,6 +36,7 @@ echo "ETH_RPC: $ETH_RPC"
 echo "ETH_BEACON_API: $ETH_BEACON_API"
 
 # Set up Gaia node
+CHAIN_ID="test-ibc-eth"
 gaiad init test-ibc --chain-id $CHAIN_ID
 gaiad keys add test --keyring-backend test
 gaiad keys add test1 --keyring-backend test

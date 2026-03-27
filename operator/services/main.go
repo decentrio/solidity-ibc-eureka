@@ -239,7 +239,7 @@ func (s *Services) StartLoop() {
 					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
 						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},
@@ -308,7 +308,7 @@ func (s *Services) StartLoop() {
 					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
 						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},
@@ -382,7 +382,7 @@ func (s *Services) StartLoop() {
 					AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
+						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
 						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},

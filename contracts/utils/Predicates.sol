@@ -32,7 +32,9 @@ library Predicates {
         uint128 time
     ) internal pure {
         // Ensure the latest trusted header hasn't expired
-        if (time < trustedState.headerTime || time - trustedState.headerTime > trustingPeriod) {
+        // trustingPeriod is in seconds; timestamps are in nanoseconds
+        uint128 trustingPeriodNanos = uint128(trustingPeriod) * 1_000_000_000;
+        if (time < trustedState.headerTime || time - trustedState.headerTime > trustingPeriodNanos) {
             revert("invalid block: untrusted state is outside of trusting period");
         }
 

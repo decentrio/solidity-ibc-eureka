@@ -20,6 +20,8 @@ import (
 	utils "operator/utils"
 
 	sdkmath "cosmossdk.io/math"
+	"github.com/ethereum/go-ethereum"
+
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
@@ -36,6 +38,7 @@ import (
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 	exported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -78,7 +81,7 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 	}
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.Value = big.NewInt(0)      // in wei
-	auth.GasLimit = uint64(3000000) // in units
+	auth.GasLimit = uint64(10000000) // in units
 	auth.GasPrice = gasPrice
 
 	address, tx, _, err := tendermintContract.DeployContractSP1ICS07Tendermint(
@@ -96,8 +99,15 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 	if err != nil {
 		return fmt.Errorf("failed to deploy ics07 contract: %w", err)
 	}
-	fmt.Println("deployed successful, tx: ", tx)
-	fmt.Println("ICS07 Tendermint Address: ", address.String())
+	log.Printf("[CreateCosmosClient] Deploy tx sent: %s. Waiting for receipt...", tx.Hash().Hex())
+	receipt, err := bind.WaitMined(context.Background(), ctx.EthClient(), tx)
+	if err != nil {
+		return fmt.Errorf("failed waiting for deploy receipt: %w", err)
+	}
+	if receipt.Status == 0 {
+		return fmt.Errorf("deploy tx %s reverted (gasUsed=%d)", tx.Hash().Hex(), receipt.GasUsed)
+	}
+	log.Printf("[CreateCosmosClient] ICS07 deployed at %s (block %d, gasUsed=%d)", address.String(), receipt.BlockNumber.Uint64(), receipt.GasUsed)
 	ctx.SetClient(address)
 
 	ics26Router, err := routerContract.NewContractICS26Router(*ctx.RouterContract(), ctx.EthClient())
@@ -122,8 +132,18 @@ func (h *Handler) CreateCosmosClientContract(ctx services.Context, clientState, 
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to deploy ics07 contract: %w", err)
+		return fmt.Errorf("failed to add client to ICS26Router: %w", err)
 	}
+	log.Printf("[CreateCosmosClient] AddClient tx sent: %s. Waiting for receipt...", tx.Hash().Hex())
+	receipt, err = bind.WaitMined(context.Background(), ctx.EthClient(), tx)
+	if err != nil {
+		return fmt.Errorf("failed waiting for AddClient receipt: %w", err)
+	}
+	if receipt.Status == 0 {
+		log.Printf("[CreateCosmosClient] AddClient tx reverted (gasUsed=%d) — client may already exist, continuing...", receipt.GasUsed)
+		return nil
+	}
+	log.Printf("[CreateCosmosClient] AddClient confirmed (block %d, gasUsed=%d)", receipt.BlockNumber.Uint64(), receipt.GasUsed)
 
 	return nil
 }
@@ -164,7 +184,7 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 	}
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.Value = big.NewInt(0)     // in wei
-	auth.GasLimit = uint64(300000) // in units
+	auth.GasLimit = uint64(3000000) // in units
 	auth.GasPrice = gasPrice
 
 	ics07Tendermint, err := tendermintContract.NewContractSP1ICS07Tendermint(
@@ -183,35 +203,64 @@ func (h *Handler) SendEthTx(ctx services.Context, msg any) error {
 		return fmt.Errorf("failed to create ICS07 Tendermint contract: %w", err)
 	}
 
+	var tx *types.Transaction
 	switch msg := msg.(type) {
 	case updateclient.IUpdateClientMsgsMsgUpdateClient:
+		log.Printf("[SendEthTx] Encoding updateClient msg...")
 		data, err := operatorclient.EncodeUpdateClientMsg(msg)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("failed to encode updateClient msg: %w", err)
 		}
 
-		_, err = ics07Tendermint.UpdateClient(auth, data)
+		log.Printf("[SendEthTx] Sending updateClient tx...")
+		tx, err = ics07Tendermint.UpdateClient(auth, data)
 		if err != nil {
-			return fmt.Errorf("failed to verify membership: %w", err)
+			return fmt.Errorf("failed to send updateClient tx: %w", err)
 		}
 	case tendermintContract.ILightClientMsgsMsgVerifyMembership:
-		_, err := ics07Tendermint.VerifyMembership(auth, msg)
+		log.Printf("[SendEthTx] Sending verifyMembership tx...")
+		tx, err = ics07Tendermint.VerifyMembership(auth, msg)
 		if err != nil {
 			return fmt.Errorf("failed to verify membership: %w", err)
 		}
 	case tendermintContract.ILightClientMsgsMsgVerifyNonMembership:
-		_, err := ics07Tendermint.VerifyNonMembership(auth, msg)
+		log.Printf("[SendEthTx] Sending verifyNonMembership tx...")
+		tx, err = ics07Tendermint.VerifyNonMembership(auth, msg)
 		if err != nil {
-			return fmt.Errorf("failed to verify membership: %w", err)
+			return fmt.Errorf("failed to verify non-membership: %w", err)
 		}
 	case contractICS26Router.IICS26RouterMsgsMsgRecvPacket:
-		_, err := icS26Router.RecvPacket(auth, msg)
+		log.Printf("[SendEthTx] Sending recvPacket tx...")
+		tx, err = icS26Router.RecvPacket(auth, msg)
 		if err != nil {
-			return fmt.Errorf("failed to verify membership: %w", err)
+			return fmt.Errorf("failed to recv packet: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported message type")
+		return fmt.Errorf("unsupported message type: %T", msg)
 	}
+
+	log.Printf("[SendEthTx] Tx sent: %s. Waiting for receipt...", tx.Hash().Hex())
+	receipt, err := bind.WaitMined(context.Background(), ctx.EthClient(), tx)
+	if err != nil {
+		return fmt.Errorf("failed waiting for tx receipt: %w", err)
+	}
+	if receipt.Status == 0 {
+		// Try to get revert reason by replaying the tx via eth_call
+		callMsg := ethereum.CallMsg{
+			From:     fromAddress,
+			To:       tx.To(),
+			Gas:      tx.Gas(),
+			GasPrice: tx.GasPrice(),
+			Value:    tx.Value(),
+			Data:     tx.Data(),
+		}
+		_, callErr := ctx.EthClient().CallContract(context.Background(), callMsg, receipt.BlockNumber)
+		if callErr != nil {
+			log.Printf("[SendEthTx] Revert reason: %v", callErr)
+		}
+		return fmt.Errorf("tx %s reverted (status=0, gasUsed=%d)", tx.Hash().Hex(), receipt.GasUsed)
+	}
+	log.Printf("[SendEthTx] Tx %s confirmed in block %d (gasUsed=%d)", tx.Hash().Hex(), receipt.BlockNumber.Uint64(), receipt.GasUsed)
 
 	return nil
 }

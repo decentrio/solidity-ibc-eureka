@@ -278,8 +278,8 @@ contract Membership  is IMembership {
             revert("Unexpected leaf prehash value operation");
         }
         bytes memory leafSpecPrefix = spec.leafOp.prefix;
-        if (leafSpecPrefix.length > leafPrefix.length || 
-            (keccak256(abi.encode(leafSpecPrefix)) == keccak256(abi.encode(getSlice(leafPrefix, 0, leafSpecPrefix.length))))) {
+        if (leafSpecPrefix.length > leafPrefix.length ||
+            !(keccak256(abi.encode(leafSpecPrefix)) == keccak256(abi.encode(getSlice(leafPrefix, 0, leafSpecPrefix.length))))) {
             revert("Incorrect prefix on leaf");
         }
 
@@ -530,10 +530,13 @@ contract Membership  is IMembership {
             revert InputDataMissing();
         }
 
-        bytes32 hashedData = hashData(data, prehashOp);
+        if (prehashOp == IMembershipMsgs.HashOp.NO_HASH) {
+            bytes memory encodedLen = encodeVarint(data.length);
+            return abi.encodePacked(encodedLen, data);
+        }
 
-        uint256 dataLength = hashedData.length;
-        bytes memory encodedLength = encodeVarint(dataLength);
+        bytes32 hashedData = hashData(data, prehashOp);
+        bytes memory encodedLength = encodeVarint(uint256(32));
         return abi.encodePacked(encodedLength, hashedData);
     }
 

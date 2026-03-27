@@ -10,7 +10,6 @@ import (
 	contractICS26Router "operator/bindings/ICS26Router"
 	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	"operator/client"
-	operatorclient "operator/client"
 	"operator/prover"
 	"operator/services"
 	"operator/subscriber"
@@ -154,19 +153,41 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 				continue
 			}
 
+			log.Printf("[Listener] Received send_packet event, packet seq=%d, src=%s, dst=%s", packet.Sequence, packet.SourceClient, packet.DestinationClient)
+
+			// Wait for next block so AppHash includes the packet commitment
+			// AppHash at block N+1 contains the state after block N's txs
+			log.Printf("[Listener] Waiting 2 blocks for packet commitment to be included in AppHash...")
+			time.Sleep(6 * time.Second)
+
 			latestEthTimestamp := ctx.LatestCosmosTimestamp()
-			latestLightBlock, err := worker.UpdateCosmosClient(ctx, "groth16", int64(latestEthTimestamp.LatestUpdateHeight), "2/3")
+			log.Printf("[Listener] Updating cosmos client from height %d...", latestEthTimestamp.LatestUpdateHeight)
+			latestLightBlock, err := worker.UpdateCosmosClient(ctx, "groth16", int64(latestEthTimestamp.LatestUpdateHeight), "1/3")
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to update cosmos light client: %s", err.Error()))
 				continue
 			}
 			latestEthTimestamp.LatestUpdateTime = time.Now()
 			latestEthTimestamp.LatestUpdateHeight = uint64(latestLightBlock.BlockHeight)
+			log.Printf("[Listener] Light client updated to height %d", latestLightBlock.BlockHeight)
 
 			ibcPath := utils.IbcCommitmentPath(packet, []byte{1})
+			log.Printf("[Listener] Proving membership at height %d...", latestLightBlock.BlockHeight)
 			value, proof, err := client.ProvePath(ctx.CosmosClient(), latestLightBlock.BlockHeight, ibcPath)
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to prove path: %s", err.Error()))
+				continue
+			}
+			log.Printf("[Listener] Proof obtained, value len=%d, proofs count=%d", len(value), len(proof.Proofs))
+			log.Printf("[Listener] AppHash: %x", latestLightBlock.SignedHeader.AppHash)
+			log.Printf("[Listener] Value: %x", value)
+			log.Printf("[Listener] ConsensusState: timestamp=%d, root(appHash)=%x, nextValHash=%x",
+				latestLightBlock.SignedHeader.Header.Time.Unix(),
+				latestLightBlock.SignedHeader.AppHash,
+				latestLightBlock.SignedHeader.Header.NextValidatorsHash)
+
+			if len(value) == 0 {
+				ctx.Logger.Println("WARNING: packet commitment value is empty at this height, skipping")
 				continue
 			}
 
@@ -199,11 +220,11 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 				AppHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 				// trusted consensus from revision height block
 				TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
-					Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.Unix()),
-					Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+					Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
+					Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 					NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 				},
-				MembershipType: 1,
+				MembershipType: 0, // Membership (not MembershipAndUpdateClient)
 			}
 
 			tendermintAbiJson, err := tendermintContract.ContractSP1ICS07TendermintMetaData.GetAbi()
@@ -214,8 +235,10 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
 			}
+			// Strip 4-byte function selector — ICS26Router does abi.decode, not a function call
+			calldata = calldata[4:]
 
-			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Payloads))
+			payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, 0, len(packet.Payloads))
 			for _, p := range packet.Payloads {
 				payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
 					SourcePort: p.SourcePort,
@@ -237,7 +260,13 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 				MembershipMsg: calldata,
 			}
 
-			worker.TxHandler.SendEthTx(ctx, msgRecvPacket)
+			log.Printf("[Listener] Sending recvPacket tx to Ethereum...")
+			err = worker.TxHandler.SendEthTx(ctx, msgRecvPacket)
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to send recvPacket: %s", err.Error()))
+				continue
+			}
+			log.Printf("[Listener] recvPacket tx succeeded!")
 		}
 	}
 }
@@ -260,16 +289,16 @@ func main() {
 		panic(fmt.Errorf("failed to create RPC client: %w", err))
 	}
 
-	prover, err := prover.NewProver("./prover/bin/r1cs.bin", "./prover/bin/pk.bin")
+	prover, err := prover.NewProver("./prover/bin/r1cs.bin", "./prover/bin/pk.bin", "./prover/bin/vk.bin")
 	if err != nil {
 		panic(fmt.Errorf("failed reading prover key: %w", err))
 	}
 	worker := services.NewWorker(&transaction.Handler{}, prover)
 
-	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, cfg.EthToCosmosConfig.BeaconUrl, "")
+	ctx := services.NewCtxWithBeacon(cosmosClient, ethClient, cfg.EthToCosmosConfig.BeaconUrl, "08-wasm-0")
 	ctx.SetAddresses(cfg.CosmosToEthConfig.ICS26Address, cfg.CosmosToEthConfig.WrapperVerifier, cfg.CosmosToEthConfig.Membership, cfg.CosmosToEthConfig.Misbehaviour, cfg.CosmosToEthConfig.UpdateClient, "0x8943545177806ED17B9F23F0a21ee5948eCaa776")
 
-	ics07 := common.HexToAddress("0x6fDA176cb71b4f2b85c17E398b58803797f721e4")
+	ics07 := common.HexToAddress("0xD1ea1592b7927a2f0EE5f8567928Df0cfA687C78")
 	ctx.SetClient(ics07)
 	err = ctx.CosmosClient().Start()
 	if err != nil {
@@ -278,15 +307,15 @@ func main() {
 	defer ctx.CosmosClient().Stop()
 	listener := Listener{}
 
-	unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
-	if err != nil {
-		panic(fmt.Errorf("failed to fetch unbonding time client: %w", err))
-	}
-	trustingPeriod := 2 * uint32(unbondingPeriod) / 3
-	err = worker.CreateCosmosClient(ctx, "groth16", trustingPeriod, 0, "1/3")
-	if err != nil {
-		panic(fmt.Errorf("create client err: %w", err))
-	}
+	// unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to fetch unbonding time client: %w", err))
+	// }
+	// trustingPeriod := 2 * uint32(unbondingPeriod) / 3
+	// err = worker.CreateCosmosClient(ctx, "groth16", trustingPeriod, 0, "1/3")
+	// if err != nil {
+	// 	panic(fmt.Errorf("create client err: %w", err))
+	// }
 	err = worker.CreateEthClient(ctx, "0xc6d93045091f05f6c056ca8fa583126902967b4b829085042529d279c188391c")
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
