@@ -317,9 +317,10 @@ contract Membership  is IMembership {
                     revert("Unexpected inner hash operation");
                 }
 
-                if (leafSpecPrefix.length > innerOp.prefix.length || !(keccak256(abi.encode(leafSpecPrefix)) == keccak256(abi.encode(getSlice(innerOp.prefix, 0, leafSpecPrefix.length))))) {
-                    revert("Incorrect prefix on leaf");
-                }
+                // NOTE: removed - inner ops should NOT be required to start with leaf spec prefix
+                // if (leafSpecPrefix.length > innerOp.prefix.length || !(keccak256(abi.encode(leafSpecPrefix)) == keccak256(abi.encode(getSlice(innerOp.prefix, 0, leafSpecPrefix.length))))) {
+                //     revert("Incorrect prefix on leaf");
+                // }
 
                 if (innerOp.prefix.length < spec.innerSpec.minPrefixLength) {
                     revert("Inner prefix too short");

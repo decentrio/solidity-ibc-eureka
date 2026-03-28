@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/big"
@@ -198,10 +199,27 @@ func (s *Services) StartLoop() {
 		ctx.latestEthTimestamp.LatestUpdateHeight = uint64(latestLightBlock.BlockHeight)
 		ctx.latestEthTimestamp.mtx.Unlock()
 
+		// Check current Eth block timestamp for timeout comparisons
+		ethHeader, err := ctx.EthClient().HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			ctx.Logger.Println(fmt.Errorf("Failed to get eth block header: %s", err.Error()))
+		}
+		ethBlockTime := uint64(0)
+		if ethHeader != nil {
+			ethBlockTime = ethHeader.Time
+		}
+
 		// handle packets in batch
 		for _, packet := range batch.Packets {
 			switch packet.PacketType {
 			case Send:
+				// Skip packets that have already timed out
+				if ethBlockTime > 0 && packet.Packet.TimeoutTimestamp > 0 && ethBlockTime >= packet.Packet.TimeoutTimestamp {
+					log.Printf("[RecvPacket] Packet seq=%d timed out (timeout=%d <= eth_block_time=%d), skipping",
+						packet.Packet.Sequence, packet.Packet.TimeoutTimestamp, ethBlockTime)
+					continue
+				}
+
 				ibcPath := utils.IbcCommitmentPath(*packet.Packet, []byte{1})
 
 				// target height are the latest block height
@@ -240,18 +258,20 @@ func (s *Services) StartLoop() {
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
 						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
-						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},
-					MembershipType: 1,
+					MembershipType: 0,
 				}
 
 				calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
 				if err != nil {
 					ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
 				}
+				// Strip 4-byte function selector — ICS26Router does abi.decode, not a function call
+				calldata = calldata[4:]
 
-				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, 0, len(packet.Packet.Payloads))
 				for _, p := range packet.Packet.Payloads {
 					payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
 						SourcePort: p.SourcePort,
@@ -309,18 +329,20 @@ func (s *Services) StartLoop() {
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
 						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
-						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},
-					MembershipType: 1,
+					MembershipType: 0,
 				}
 
 				calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
 				if err != nil {
 					ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
 				}
+				// Strip 4-byte function selector — ICS26Router does abi.decode, not a function call
+				calldata = calldata[4:]
 
-				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, 0, len(packet.Packet.Payloads))
 				for _, p := range packet.Packet.Payloads {
 					payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
 						SourcePort: p.SourcePort,
@@ -383,18 +405,20 @@ func (s *Services) StartLoop() {
 					// trusted consensus from revision height block
 					TrustedConsensusState: tendermintContract.IICS07TendermintMsgsConsensusState{
 						Timestamp:          big.NewInt(latestLightBlock.SignedHeader.Header.Time.UnixNano()),
-						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.ConsensusHash),
+						Root:               utils.BytesToBytes32(latestLightBlock.SignedHeader.AppHash),
 						NextValidatorsHash: utils.BytesToBytes32(latestLightBlock.SignedHeader.Header.NextValidatorsHash),
 					},
-					MembershipType: 1,
+					MembershipType: 0,
 				}
 
 				calldata, err := tendermintAbiJson.Pack("verifyMembership", membershipMsg)
 				if err != nil {
 					ctx.Logger.Println(fmt.Errorf("Failed to abi encode verify msg: %s", err.Error()))
 				}
+				// Strip 4-byte function selector — ICS26Router does abi.decode, not a function call
+				calldata = calldata[4:]
 
-				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, len(packet.Packet.Payloads))
+				payloads := make([]contractICS26Router.IICS26RouterMsgsPayload, 0, len(packet.Packet.Payloads))
 				for _, p := range packet.Packet.Payloads {
 					payloads = append(payloads, contractICS26Router.IICS26RouterMsgsPayload{
 						SourcePort: p.SourcePort,

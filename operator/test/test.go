@@ -153,7 +153,19 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 				continue
 			}
 
-			log.Printf("[Listener] Received send_packet event, packet seq=%d, src=%s, dst=%s", packet.Sequence, packet.SourceClient, packet.DestinationClient)
+			log.Printf("[Listener] Received send_packet event, packet seq=%d, src=%s, dst=%s timeout=%d", packet.Sequence, packet.SourceClient, packet.DestinationClient, packet.TimeoutTimestamp)
+
+			// Check if packet has already timed out before doing expensive ZK work
+			ethHeader, err := ctx.EthClient().HeaderByNumber(context.Background(), nil)
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to get eth block header: %s", err.Error()))
+				continue
+			}
+			if packet.TimeoutTimestamp > 0 && ethHeader.Time >= packet.TimeoutTimestamp {
+				log.Printf("[Listener] Packet seq=%d already timed out (timeout=%d <= eth_block_time=%d), skipping",
+					packet.Sequence, packet.TimeoutTimestamp, ethHeader.Time)
+				continue
+			}
 
 			// Wait for next block so AppHash includes the packet commitment
 			// AppHash at block N+1 contains the state after block N's txs
@@ -165,6 +177,18 @@ func (l *Listener) SubscribeCosmos(ctx services.Context, worker *services.Worker
 			latestLightBlock, err := worker.UpdateCosmosClient(ctx, "groth16", int64(latestEthTimestamp.LatestUpdateHeight), "1/3")
 			if err != nil {
 				ctx.Logger.Println(fmt.Errorf("Failed to update cosmos light client: %s", err.Error()))
+				continue
+			}
+
+			// Re-check timeout after updateClient (ZK proof takes time)
+			ethHeader, err = ctx.EthClient().HeaderByNumber(context.Background(), nil)
+			if err != nil {
+				ctx.Logger.Println(fmt.Errorf("Failed to get eth block header: %s", err.Error()))
+				continue
+			}
+			if packet.TimeoutTimestamp > 0 && ethHeader.Time >= packet.TimeoutTimestamp {
+				log.Printf("[Listener] Packet seq=%d timed out during updateClient (timeout=%d <= eth_block_time=%d), skipping",
+					packet.Sequence, packet.TimeoutTimestamp, ethHeader.Time)
 				continue
 			}
 			latestEthTimestamp.LatestUpdateTime = time.Now()
@@ -307,15 +331,15 @@ func main() {
 	defer ctx.CosmosClient().Stop()
 	listener := Listener{}
 
-	// unbondingPeriod, err := operatorclient.GetUnbondingTime(cosmosClient)
-	// if err != nil {
-	// 	panic(fmt.Errorf("failed to fetch unbonding time client: %w", err))
-	// }
-	// trustingPeriod := 2 * uint32(unbondingPeriod) / 3
-	// err = worker.CreateCosmosClient(ctx, "groth16", trustingPeriod, 0, "1/3")
-	// if err != nil {
-	// 	panic(fmt.Errorf("create client err: %w", err))
-	// }
+	unbondingPeriod, err := client.GetUnbondingTime(cosmosClient)
+	if err != nil {
+		panic(fmt.Errorf("failed to fetch unbonding time client: %w", err))
+	}
+	trustingPeriod := 2 * uint32(unbondingPeriod) / 3
+	err = worker.CreateCosmosClient(ctx, "groth16", trustingPeriod, 0, "1/3")
+	if err != nil {
+		panic(fmt.Errorf("create client err: %w", err))
+	}
 	err = worker.CreateEthClient(ctx, "0xc6d93045091f05f6c056ca8fa583126902967b4b829085042529d279c188391c")
 	if err != nil {
 		panic(fmt.Errorf("create client err: %w", err))
