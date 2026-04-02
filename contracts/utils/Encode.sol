@@ -53,32 +53,39 @@ library Encode {
         IICS07TendermintMsgs.SimpleValidator memory validator
     ) public pure returns (bytes memory) {
         bytes memory encoded = new bytes(0);
-        
-        // Encode field 1: pub_key (tag = 1, wire type = 2 for length-delimited)
-        // Tag byte: (field_number << 3) | wire_type = (1 << 3) | 2 = 0x0A
-        encoded = abi.encodePacked(encoded, uint8(0x0A)); // tag
-        encoded = abi.encodePacked(encoded, uint8(32));   // length (32 bytes)
-        encoded = abi.encodePacked(encoded, validator.pubKey); // data
-        
-        // Encode field 2: voting_power (tag = 2, wire type = 0 for varint)
-        // Tag byte: (field_number << 3) | wire_type = (2 << 3) | 0 = 0x10
-        encoded = abi.encodePacked(encoded, uint8(0x10)); // tag
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(validator.votingPower))); // varint-encoded value
+
+        // Field 1: pub_key (tag = 1, wire type = 2 for length-delimited)
+        // PubKey is a nested message: crypto.PublicKey{Sum: &PublicKey_Ed25519{Ed25519: pubKey}}
+        // Inner encoding: Ed25519 oneof field 1 (tag=0x0A), length=32, data
+        bytes memory pubKeyInner = abi.encodePacked(uint8(0x0A), uint8(32), validator.pubKey);
+        encoded = abi.encodePacked(encoded, uint8(0x0A)); // tag: (1 << 3) | 2
+        encoded = abi.encodePacked(encoded, encodeVarint(pubKeyInner.length)); // length of nested PublicKey message
+        encoded = abi.encodePacked(encoded, pubKeyInner); // nested PublicKey message
+
+        // Field 2: voting_power (tag = 2, wire type = 0 for varint)
+        // Proto3: skip zero-value fields
+        if (validator.votingPower > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(validator.votingPower)));
+        }
 
         return encoded;
     }
 
     function encodeVersion(IICS07TendermintMsgs.Version memory version) public pure returns (bytes memory) {
         bytes memory encoded = new bytes(0);
-        
-        // Field 1: blockVersion (tag = 1, wire type = 0 for varint)
-        encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.blockVersion)));
-        
-        // Field 2: appVersion (tag = 2, wire type = 0 for varint)
-        encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
-        encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.appVersion)));
-        
+
+        // Proto3: skip zero-value fields
+        if (version.blockVersion > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x08)); // tag: (1 << 3) | 0
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.blockVersion)));
+        }
+
+        if (version.appVersion > 0) {
+            encoded = abi.encodePacked(encoded, uint8(0x10)); // tag: (2 << 3) | 0
+            encoded = abi.encodePacked(encoded, encodeVarint(uint256(version.appVersion)));
+        }
+
         return encoded;
     }
 
@@ -97,6 +104,54 @@ library Encode {
         encoded = abi.encodePacked(encoded, partSetHeaderEncoded);
         
         return encoded;
+    }
+
+    /// @notice Wraps a string in gogoproto StringValue{Value: str} for header hashing.
+    /// Matches CometBFT's cdcEncode(string) used in Header.Hash().
+    function cdcEncodeString(string memory value) public pure returns (bytes memory) {
+        bytes memory valueBytes = bytes(value);
+        if (valueBytes.length == 0) return new bytes(0);
+        // StringValue field 1 (tag=0x0A, wire type 2) + varint(len) + bytes
+        return abi.encodePacked(uint8(0x0A), encodeVarint(valueBytes.length), valueBytes);
+    }
+
+    /// @notice Wraps an int64 in gogoproto Int64Value{Value: n} for header hashing.
+    /// Matches CometBFT's cdcEncode(int64) used in Header.Hash().
+    function cdcEncodeInt64(uint256 value) public pure returns (bytes memory) {
+        if (value == 0) return new bytes(0);
+        // Int64Value field 1 (tag=0x08, wire type 0) + varint(value)
+        return abi.encodePacked(uint8(0x08), encodeVarint(value));
+    }
+
+    /// @notice Wraps variable-length bytes in gogoproto BytesValue{Value: bz} for header hashing.
+    /// Matches CometBFT's cdcEncode([]byte) used in Header.Hash().
+    function cdcEncodeBytes(bytes memory value) public pure returns (bytes memory) {
+        if (value.length == 0) return new bytes(0);
+        // BytesValue field 1 (tag=0x0A, wire type 2) + varint(len) + bytes
+        return abi.encodePacked(uint8(0x0A), encodeVarint(value.length), value);
+    }
+
+    /// @notice Wraps a bytes32 hash in gogoproto BytesValue{Value: hash} for header hashing.
+    /// Matches CometBFT's cdcEncode(HexBytes) used in Header.Hash().
+    function cdcEncodeBytes32(bytes32 value) public pure returns (bytes memory) {
+        if (value == bytes32(0)) return new bytes(0);
+        // BytesValue field 1 (tag=0x0A, wire type 2) + length 32 + hash
+        return abi.encodePacked(uint8(0x0A), uint8(32), value);
+    }
+
+    /// @notice Encodes a signed 64-bit integer as 8-byte little-endian (protobuf sfixed64).
+    function encodeSfixed64(int64 value) public pure returns (bytes memory) {
+        bytes memory result = new bytes(8);
+        uint64 v = uint64(value);
+        result[0] = bytes1(uint8(v));
+        result[1] = bytes1(uint8(v >> 8));
+        result[2] = bytes1(uint8(v >> 16));
+        result[3] = bytes1(uint8(v >> 24));
+        result[4] = bytes1(uint8(v >> 32));
+        result[5] = bytes1(uint8(v >> 40));
+        result[6] = bytes1(uint8(v >> 48));
+        result[7] = bytes1(uint8(v >> 56));
+        return result;
     }
 
     function encodePartSetHeader(IICS07TendermintMsgs.PartSetHeader memory partSetHeader) public pure returns (bytes memory) {
@@ -136,16 +191,16 @@ library Encode {
         // Field 1: type = PrecommitType (2), varint, tag 0x08
         encoded = abi.encodePacked(encoded, uint8(0x08), uint8(0x02));
 
-        // Field 2: height, sfixed64, tag 0x11 (omit if zero)
+        // Field 2: height, sfixed64 (fixed 8-byte little-endian), tag 0x11
         if (commit.height > 0) {
             encoded = abi.encodePacked(encoded, uint8(0x11));
-            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.height)));
+            encoded = abi.encodePacked(encoded, encodeSfixed64(int64(uint64(commit.height))));
         }
 
-        // Field 3: round, sfixed64, tag 0x19 (omit if zero)
+        // Field 3: round, sfixed64 (fixed 8-byte little-endian), tag 0x19
         if (commit.round > 0) {
             encoded = abi.encodePacked(encoded, uint8(0x19));
-            encoded = abi.encodePacked(encoded, encodeVarint(uint256(commit.round)));
+            encoded = abi.encodePacked(encoded, encodeSfixed64(int64(uint64(commit.round))));
         }
 
         // Field 4: block_id, length-delimited, tag 0x22
@@ -168,6 +223,7 @@ library Encode {
             encoded = abi.encodePacked(encoded, encodeString(chainId));
         }
 
-        return encoded;
+        // Wrap with varint length prefix (MarshalDelimited for Amino compatibility)
+        return abi.encodePacked(encodeVarint(encoded.length), encoded);
     }
 }

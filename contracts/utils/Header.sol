@@ -26,57 +26,67 @@ library Header {
     function hashHeader(
         IICS07TendermintMsgs.BlockHeader memory header
     ) pure public returns (bytes32) {
-        uint256 fieldCount = 9;
-        
-        if (header.hasLastBlockId) fieldCount++;
-        if (header.hasLastCommitHash) fieldCount++;
-        if (header.hasDataHash) fieldCount++;
-        if (header.hasLastResultsHash) fieldCount++;
-        if (header.hasEvidenceHash) fieldCount++;
-        
-        bytes[] memory headerBytes = new bytes[](fieldCount);
-        uint256 index = 0;
-        
-        // Always present fields
-        headerBytes[index++] = Encode.encodeVersion(header.version);
-        headerBytes[index++] = Encode.encodeString(header.chainId);
-        headerBytes[index++] = Encode.encodeVarint(uint256(header.height));
-        headerBytes[index++] = Encode.encodeVarint(uint256(header.time));
+        // CometBFT Header.Hash() ALWAYS hashes 14 fields via merkle.
+        // Missing fields are encoded as empty bytes (nil in Go).
+        bytes[] memory headerBytes = new bytes[](14);
 
-        // Conditional fields
+        // Field 0: Version (proto.Marshal)
+        headerBytes[0] = Encode.encodeVersion(header.version);
+
+        // Field 1: ChainID (cdcEncode → StringValue)
+        headerBytes[1] = Encode.cdcEncodeString(header.chainId);
+
+        // Field 2: Height (cdcEncode → Int64Value)
+        headerBytes[2] = Encode.cdcEncodeInt64(uint256(header.height));
+
+        // Field 3: Time (StdTimeMarshal → Timestamp)
+        headerBytes[3] = Encode.encodeTimestamp(header.time);
+
+        // Field 4: LastBlockId (proto.Marshal, empty if not present)
         if (header.hasLastBlockId) {
-            headerBytes[index++] = Encode.encodeBlockId(header.lastBlockId);
+            headerBytes[4] = Encode.encodeBlockId(header.lastBlockId);
+        } else {
+            headerBytes[4] = new bytes(0);
         }
-        
+
+        // Field 5: LastCommitHash (cdcEncode → BytesValue)
         if (header.hasLastCommitHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastCommitHash);
+            headerBytes[5] = Encode.cdcEncodeBytes32(header.lastCommitHash);
+        } else {
+            headerBytes[5] = new bytes(0);
         }
-        
+
+        // Field 6: DataHash (cdcEncode → BytesValue)
         if (header.hasDataHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.dataHash);
+            headerBytes[6] = Encode.cdcEncodeBytes32(header.dataHash);
+        } else {
+            headerBytes[6] = new bytes(0);
         }
-        
-        // Always present fields
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.validatorsHash);
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.nextValidatorsHash);
-        headerBytes[index++] = abi.encodePacked(uint8(32), header.consensusHash);
-        
-        // appHash is always present (no has flag in struct)
-        uint256 appHashLength = header.appHash.length;
-        headerBytes[index++] = abi.encodePacked(Encode.encodeVarint(appHashLength), header.appHash);
-        
-        // Conditional fields
+
+        // Field 7-9: Always present hashes (cdcEncode → BytesValue)
+        headerBytes[7] = Encode.cdcEncodeBytes32(header.validatorsHash);
+        headerBytes[8] = Encode.cdcEncodeBytes32(header.nextValidatorsHash);
+        headerBytes[9] = Encode.cdcEncodeBytes32(header.consensusHash);
+
+        // Field 10: AppHash (cdcEncode → BytesValue)
+        headerBytes[10] = Encode.cdcEncodeBytes32(header.appHash);
+
+        // Field 11: LastResultsHash (cdcEncode → BytesValue)
         if (header.hasLastResultsHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.lastResultsHash);
+            headerBytes[11] = Encode.cdcEncodeBytes32(header.lastResultsHash);
+        } else {
+            headerBytes[11] = new bytes(0);
         }
-        
+
+        // Field 12: EvidenceHash (cdcEncode → BytesValue)
         if (header.hasEvidenceHash) {
-            headerBytes[index++] = abi.encodePacked(uint8(32), header.evidenceHash);
+            headerBytes[12] = Encode.cdcEncodeBytes32(header.evidenceHash);
+        } else {
+            headerBytes[12] = new bytes(0);
         }
-        
-        // proposerAddress is always present (no has flag in struct)
-        uint256 proposerAddressLength = header.proposerAddress.length;
-        headerBytes[index++] = abi.encodePacked(Encode.encodeVarint(proposerAddressLength), header.proposerAddress);
+
+        // Field 13: ProposerAddress (cdcEncode → BytesValue)
+        headerBytes[13] = Encode.cdcEncodeBytes(header.proposerAddress);
 
         return merkleHash(headerBytes);
     }
@@ -88,18 +98,17 @@ library Header {
             return bytes32(0);
         }
 
-        // tmhash(0x00 || leaf)
-        // Pre and post-conditions: the hasher is in the reset state
-        // before and after calling this function.
+        // tmhash(0x00 || leaf) — 1-byte leaf prefix per Tendermint spec
         if (bytesArray.length == 1) {
-            return sha256(abi.encodePacked([0x00], bytesArray[0]));
+            return sha256(abi.encodePacked(bytes1(0x00), bytesArray[0]));
         }
 
         uint256 split = nextPowerOfTwo(bytesArray.length) / 2;
         bytes32 left = merkleHash(getSlice(bytesArray, 0, split));
         bytes32 right = merkleHash(getSlice(bytesArray, split, bytesArray.length));
 
-        return sha256(abi.encodePacked([0x01], left, right));
+        // tmhash(0x01 || left || right) — 1-byte inner prefix per Tendermint spec
+        return sha256(abi.encodePacked(bytes1(0x01), left, right));
     }
 
     function getSlice(bytes[] memory bytesArray, uint256 from, uint256 to)

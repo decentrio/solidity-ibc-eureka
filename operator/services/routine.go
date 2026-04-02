@@ -5,9 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
+	tendermintContract "operator/bindings/SP1ICS07Tendermint"
 	updateclientContract "operator/bindings/UpdateClient"
 	operatorclient "operator/client"
+	"operator/prover"
 	"strconv"
 	"strings"
 	"time"
@@ -41,17 +44,24 @@ func (w *Worker) CreateCosmosClient(ctx Context, proofType string, trustingPerio
 	clientState := genesis.TrustedClientState
 	consensusState := genesis.TrustedConsensusState
 
+	log.Printf("[CreateCosmosClient] clientState: chainId=%s trustLevel=%d/%d height=%d/%d trustingPeriod=%d unbondingPeriod=%d isFrozen=%v zkAlgorithm=%d",
+		clientState.ChainId, clientState.TrustLevel.Numerator, clientState.TrustLevel.Denominator,
+		clientState.LatestHeight.RevisionNumber, clientState.LatestHeight.RevisionHeight,
+		clientState.TrustingPeriod, clientState.UnbondingPeriod, clientState.IsFrozen, clientState.ZkAlgorithm)
+
 	clientStateEncoded, err := operatorclient.EncodeClientState(clientState)
 	if err != nil {
 		return fmt.Errorf("failed to encode client state: %w", err)
 	}
+	log.Printf("[CreateCosmosClient] clientStateEncoded len=%d hex=%x", len(clientStateEncoded), clientStateEncoded[:min(64, len(clientStateEncoded))])
 
 	consensusStateEncoded, err := operatorclient.EncodeConsensusState(consensusState)
 	if err != nil {
-		return fmt.Errorf("failed to encode client state: %w", err)
+		return fmt.Errorf("failed to encode consensus state: %w", err)
 	}
 
 	consensusHash := crypto.Keccak256(consensusStateEncoded)
+	log.Printf("[CreateCosmosClient] consensusHash=%x", consensusHash)
 	return w.TxHandler.CreateCosmosClientContract(ctx, clientStateEncoded, consensusHash)
 }
 
@@ -61,13 +71,34 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
 
+	log.Printf("[UpdateCosmosClient] called with trustedBlock=%d, latestBlockHeight=%d", trustedBlock, status.SyncInfo.LatestBlockHeight)
+
 	if trustedBlock == 0 {
-		trustedBlock = status.SyncInfo.LatestBlockHeight
-	} else if trustedBlock == status.SyncInfo.LatestBlockHeight {
-		// if trusted block height is equal to latest block height stop here
-		return nil, fmt.Errorf("client is up to dated")
+		// First update: query on-chain client state for the initial trusted height
+		ics07, err := tendermintContract.NewContractSP1ICS07Tendermint(*ctx.ClientContract(), ctx.EthClient())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ICS07 instance: %w", err)
+		}
+		log.Printf("[UpdateCosmosClient] Querying on-chain client state at ICS07=%s", ctx.ClientContract().Hex())
+		clientStateBytes, err := ics07.GetClientState(nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get on-chain client state: %w", err)
+		}
+		log.Printf("[UpdateCosmosClient] GetClientState returned %d bytes: %x", len(clientStateBytes), clientStateBytes[:min(64, len(clientStateBytes))])
+		onChainClientState, err := operatorclient.DecodeClientState(clientStateBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode on-chain client state: %w", err)
+		}
+		log.Printf("[UpdateCosmosClient] On-chain client state: chainId=%s height=(%d,%d) frozen=%v",
+			onChainClientState.ChainId, onChainClientState.LatestHeight.RevisionNumber, onChainClientState.LatestHeight.RevisionHeight, onChainClientState.IsFrozen)
+		trustedBlock = int64(onChainClientState.LatestHeight.RevisionHeight)
+		log.Printf("[UpdateCosmosClient] Using on-chain client height %d as trusted block", trustedBlock)
+	}
+	if trustedBlock >= status.SyncInfo.LatestBlockHeight {
+		return nil, fmt.Errorf("client is up to date (trusted=%d, latest=%d)", trustedBlock, status.SyncInfo.LatestBlockHeight)
 	}
 
+	log.Printf("[UpdateCosmosClient] Fetching trustedLightBlock at height %d, latestLightBlock at height %d", trustedBlock, status.SyncInfo.LatestBlockHeight)
 	trustedLightBlock, err := operatorclient.GetLightBlock(ctx.CosmosClient(), trustedBlock)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trusted light block: %w", err)
@@ -121,43 +152,54 @@ func (w *Worker) UpdateCosmosClient(ctx Context, proofType string, trustedBlock 
 	}
 
 	consensusState := updateclientContract.IICS07TendermintMsgsConsensusState{
-		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.Unix()),
+		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixNano()),
 		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
 		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
 	}
 
+	// Debug: log consensus state fields and hash for comparison with on-chain
+	csEncoded, _ := operatorclient.EncodeConsensusState(consensusState)
+	csHash := crypto.Keccak256(csEncoded)
+	log.Printf("[UpdateCosmosClient] trustedConsensusState: timestamp=%s root=%x nextValHash=%x",
+		consensusState.Timestamp.String(), consensusState.Root, consensusState.NextValidatorsHash)
+	log.Printf("[UpdateCosmosClient] csEncoded len=%d hex=%x", len(csEncoded), csEncoded)
+	log.Printf("[UpdateCosmosClient] csHash=%x", csHash)
+
 	proposedHeader := latestLightBlock.IntoHeader(*trustedLightBlock)
 
-	// TODO: proof for multiple sigs
-	untrustedHeaderCommit := latestLightBlock.SignedHeader.Commit
-	if untrustedHeaderCommit == nil {
-		return nil, fmt.Errorf("untrusted header commit is nil")
-	}
-	untrustedHeaderSigs := untrustedHeaderCommit.Signatures
+	log.Printf("[UpdateCosmosClient] clientState.LatestHeight=(%d,%d) proposedHeader.Height=%d trustedBlock=%d latestBlock=%d",
+		clientState.LatestHeight.RevisionNumber, clientState.LatestHeight.RevisionHeight,
+		proposedHeader.SignedHeader.Header.Height, trustedLightBlock.BlockHeight, latestLightBlock.BlockHeight)
 
-	sig := untrustedHeaderSigs[0]
-	trustedValidator := latestLightBlock.ValSet.Validators[0]
-	pub := trustedValidator.PubKey.Bytes()
-	sigData := sig.Signature
-	if len(sigData) != 64 {
-		return nil, fmt.Errorf("invalid signature length: %d", len(sigData))
+	// TODO: proof for multiple sigs — currently only proves 1st valid validator signature
+	// Extract first non-absent validator signature from the latest block
+	valSig, err := prover.ExtractValidatorSignature(latestLightBlock, chainId)
+	if err != nil {
+		return nil, fmt.Errorf("extract validator signature: %w", err)
 	}
-	voteMsg := untrustedHeaderCommit.VoteSignBytes(chainId, int32(0))
-	proof, commitments, commitmentPok, err := w.Prover.GenerateProof(sigData, pub, voteMsg)
+	log.Printf("[UpdateCosmosClient] Generating Groth16 proof for validator signature...")
+	proof, commitments, commitmentPok, err := w.Prover.GenerateProof(valSig.Signature, valSig.PublicKey, valSig.SignBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error generating proof: %w", err)
 	}
+	log.Printf("[UpdateCosmosClient] Proof generated successfully. Sending Eth tx...")
 	msg := updateclientContract.IUpdateClientMsgsMsgUpdateClient{
 		ClientState:           clientState,
 		TrustedConsensusState: consensusState,
-		Time:                  big.NewInt(time.Now().Unix()),
+		Time:                  big.NewInt(time.Now().UnixNano()),
 		ProposedHeader:        proposedHeader,
 		Proof:                 proof,
 		Commitments:           commitments,
 		CommitmentPok:         commitmentPok,
 	}
 
-	return latestLightBlock, w.TxHandler.SendEthTx(ctx, msg)
+	err = w.TxHandler.SendEthTx(ctx, msg)
+	if err != nil {
+		log.Printf("[UpdateCosmosClient] SendEthTx failed: %v", err)
+		return nil, err
+	}
+	log.Printf("[UpdateCosmosClient] SendEthTx succeeded")
+	return latestLightBlock, nil
 }
 
 func (w *Worker) CreateEthClient(ctx Context, checksum string) error {

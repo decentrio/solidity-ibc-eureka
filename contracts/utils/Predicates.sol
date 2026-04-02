@@ -32,7 +32,9 @@ library Predicates {
         uint128 time
     ) internal pure {
         // Ensure the latest trusted header hasn't expired
-        if (time < trustedState.headerTime || time - trustedState.headerTime > trustingPeriod) {
+        // trustingPeriod is in seconds; timestamps are in nanoseconds
+        uint128 trustingPeriodNanos = uint128(trustingPeriod) * 1_000_000_000;
+        if (time < trustedState.headerTime || time - trustedState.headerTime > trustingPeriodNanos) {
             revert("invalid block: untrusted state is outside of trusting period");
         }
 
@@ -70,16 +72,34 @@ library Predicates {
         bool needBoth = untrustedState.signedHeader.header.height != trustedNextHeight;
 
         if (needBoth) {
-            // TODO: check_enough_trust_and_signers
+            // Check trust overlap between trusted validators and untrusted header
+            _checkVotingPowerOverlap(
+                untrustedState.signedHeader,
+                trustedState.nextValidatorSet,
+                options.trustThreshold
+            );
+            // Also check that untrusted validators have enough signers
+            IICS07TendermintMsgs.TrustThreshold memory twoThirds = IICS07TendermintMsgs.TrustThreshold({
+                numerator: 2,
+                denominator: 3
+            });
+            _checkVotingPowerOverlap(
+                untrustedState.signedHeader,
+                untrustedState.validatorSet,
+                twoThirds
+            );
         } else {
-            /// Check that there is enough signers overlap between the given, untrusted
-            /// validator set and the untrusted signed header.
+            // Check that there is enough signers overlap between the given, untrusted
+            // validator set and the untrusted signed header (>= 2/3).
             IICS07TendermintMsgs.TrustThreshold memory trustThreshold = IICS07TendermintMsgs.TrustThreshold({
                 numerator: 2,
                 denominator: 3
             });
-
-            // TODO: check enough power
+            _checkVotingPowerOverlap(
+                untrustedState.signedHeader,
+                untrustedState.validatorSet,
+                trustThreshold
+            );
         }
     }
 
@@ -127,47 +147,47 @@ library Predicates {
         }
     }
 
-// TODO: calculator
-    // /// Checks that there is enough overlap between validators and the untrusted
-    // /// signed header.
-    // ///
-    // /// First of all, checks that enough validators from the
-    // /// `trusted_validators` set signed the untrusted header to reach given
-    // /// `trust_threshold`.
-    // ///
-    // /// Second of all, checks that enough validators from the
-    // /// `untrusted_validators` set signed the untrusted header to reach a trust
-    // /// threshold of ⅔.
-    // ///
-    // /// If both of those conditions aren’t met, it’s unspecified which error is
-    // /// returned.
-    // ///
-    // /// Note also that the method isn’t guaranteed to verify all the signatures
-    // /// present in the signed header.  If there are invalid signatures, the
-    // /// method may or may not return an error depending on which validators
-    // /// those signatures correspond to.
-    // function hasSufficientValidatorsAndSignersOverlap(
-    //     IICS07TendermintMsgs.SignedHeader signedHeader,
-    //     IICS07TendermintMsgs.ValidatorSet trustedValidators,
-    //     IICS07TendermintMsgs.TrustThreshold trustThreshold,
-    //     IICS07TendermintMsgs.ValidatorSet untrustedValidators,
-    //     VotingPowerCalculator calculator,
-    // ) {
-    //     calculator.check_enough_trust_and_signers(
-    //         untrusted_sh,
-    //         trusted_validators,
-    //         *trust_threshold,
-    //         untrusted_validators,
-    //     )?;
-    // }
+    /// @notice Check that enough validators from the given set signed the header
+    /// to meet the trust threshold. Ed25519 signature verification is delegated
+    /// to the ZK proof — this function only checks voting power.
+    function _checkVotingPowerOverlap(
+        IICS07TendermintMsgs.SignedHeader memory signedHeader,
+        IICS07TendermintMsgs.ValidatorSet memory validatorSet,
+        IICS07TendermintMsgs.TrustThreshold memory trustThreshold
+    ) internal pure {
+        IICS07TendermintMsgs.CommitSig[] memory commitSigs = signedHeader.commit.commitSigs;
 
-    // /// Check that there is enough signers overlap between the given, untrusted
-    // /// validator set and the untrusted signed header.
-    // function hasSufficientSignersOverlap(
-    //     IICS07TendermintMsgs.SignedHeader untrustedSh,
-    //     IICS07TendermintMsgs.ValidatorSet untrustedValidators,
-    //     VotingPowerCalculator calculator,
-    // ) {
-    //     calculator.check_signers_overlap(untrustedSh, untrustedValidators)?;
-    // }
+        // Calculate total voting power
+        uint64 totalVotingPower = 0;
+        for (uint256 i = 0; i < validatorSet.validators.length; i++) {
+            totalVotingPower += validatorSet.validators[i].votingPower;
+        }
+
+        // Tally voting power of non-absent signers that match validators
+        uint64 talliedPower = 0;
+        for (uint256 i = 0; i < commitSigs.length; i++) {
+            if (commitSigs[i].flag == IICS07TendermintMsgs.CommitSigFlag.BLOCK_ID_FLAG_ABSENT) {
+                continue;
+            }
+
+            bytes memory signerAddress = commitSigs[i].data.validatorAddress;
+
+            for (uint256 j = 0; j < validatorSet.validators.length; j++) {
+                if (keccak256(abi.encodePacked(validatorSet.validators[j].valAddress)) == keccak256(abi.encodePacked(signerAddress))) {
+                    talliedPower += validatorSet.validators[j].votingPower;
+                    break;
+                }
+            }
+
+            // Early exit if threshold already met
+            if (talliedPower * trustThreshold.denominator > totalVotingPower * trustThreshold.numerator) {
+                return;
+            }
+        }
+
+        require(
+            talliedPower * trustThreshold.denominator > totalVotingPower * trustThreshold.numerator,
+            "insufficient voting power overlap"
+        );
+    }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+// solhint-disable gas-strict-inequalities
+
 import { IICS07TendermintMsgs } from "./msgs/IICS07TendermintMsgs.sol";
 import { IUpdateClientMsgs } from "./msgs/IUpdateClientMsgs.sol";
 import { IMembershipMsgs } from "./msgs/IMembershipMsgs.sol";
@@ -17,6 +19,7 @@ import { IMisbehaviour } from "../interfaces/IMisbehaviour.sol";
 import { IUpdateClient } from "../interfaces/IUpdateClient.sol";
 import { ILightClient } from "../interfaces/ILightClient.sol";
 import { IVerifier } from "../interfaces/IVerifier.sol";
+
 import { Paths } from "./utils/Paths.sol";
 import { Encode } from "../utils/Encode.sol";
 import { Multicall } from "@openzeppelin-contracts/utils/Multicall.sol";
@@ -35,14 +38,6 @@ contract SP1ICS07Tendermint is
 {
     using TransientSlot for *;
 
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable UPDATE_CLIENT_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable MEMBERSHIP_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY;
-    // /// @inheritdoc ISP1ICS07Tendermint
-    // bytes32 public immutable MISBEHAVIOUR_PROGRAM_VKEY;
     /// @inheritdoc ISP1ICS07Tendermint
     IVerifier public immutable VERIFIER;
     IMembership public immutable MEMBERSHIP;
@@ -68,10 +63,6 @@ contract SP1ICS07Tendermint is
     /// @param _consensusState The encoded initial consensus state.
     /// @param roleManager Manages the proof submitters and can submit proofs. Should be the ICS26Router if used in IBC.
     constructor(
-        // bytes32 updateClientProgramVkey,
-        // bytes32 membershipProgramVkey,
-        // bytes32 updateClientAndMembershipProgramVkey,
-        // bytes32 misbehaviourProgramVkey,
         address verifier,
         address membership_,
         address misbehaviour_,
@@ -80,11 +71,6 @@ contract SP1ICS07Tendermint is
         bytes32 _consensusState,
         address roleManager
     ) {
-        // UPDATE_CLIENT_PROGRAM_VKEY = updateClientProgramVkey;
-        // MEMBERSHIP_PROGRAM_VKEY = membershipProgramVkey;
-        // UPDATE_CLIENT_AND_MEMBERSHIP_PROGRAM_VKEY = updateClientAndMembershipProgramVkey;
-        // MISBEHAVIOUR_PROGRAM_VKEY = misbehaviourProgramVkey;
-
         clientState = abi.decode(_clientState, (IICS07TendermintMsgs.ClientState));
         _consensusStateHashes[clientState.latestHeight.revisionHeight] = _consensusState;
 
@@ -129,7 +115,10 @@ contract SP1ICS07Tendermint is
         returns (ILightClientMsgs.UpdateResult)
     {
         IUpdateClientMsgs.MsgUpdateClient memory msg_ = abi.decode(updateClientMsg, (IUpdateClientMsgs.MsgUpdateClient));
-        IUpdateClientMsgs.UpdateClientOutput memory output = UPDATE_CLIENT.updateClient(msg_);
+        IUpdateClientMsgs.UpdateClientOutput memory output =
+            UPDATE_CLIENT.updateClient(
+                msg_
+            );
 
         _validateUpdateClientOutput(output);
 
@@ -302,7 +291,7 @@ contract SP1ICS07Tendermint is
     /// @param kvPath The path of the key-value pair.
     /// @param kvValue The value of the key-value pair.
     /// @return The timestamp of the new consensus state.
-    // solhint-disable-next-line code-complexity
+    // solhint-disable-next-line code-complexity,function-max-lines
     function _handleSP1UpdateClientAndMembership(
         IICS02ClientMsgs.Height calldata proofHeight,
         bytes memory proofBytes,

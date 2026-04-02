@@ -108,7 +108,7 @@ contract UpdateClient is IUpdateClient {
 
             IICS07TendermintMsgs.TrustedBlockState memory trustedState = IICS07TendermintMsgs.TrustedBlockState({
                 chainId: chainId.id,
-                headerTime: time,
+                headerTime: trustedConsensusState.timestamp,
                 height: proposedHeader.trustedHeight.revisionHeight,
                 nextValidatorSet: proposedHeader.trustedNextValidatorSet,
                 nextValidatorHash: nextValSetHash
@@ -139,7 +139,7 @@ contract UpdateClient is IUpdateClient {
         Predicates.verifyValSets(untrustedState);
         Predicates.verifyAgainstTrusted(untrustedState, trustedState, options.trustingPeriod, time);
         /// Check that the untrusted header is from past.
-        uint128 drifted = time + options.clockDrift;
+        uint128 drifted = time + uint128(options.clockDrift) * 1_000_000_000;
         require(untrustedState.signedHeader.header.time < drifted, "invalid block: header is from the future");
         Predicates.verifyCommitAgainstTrusted(untrustedState, trustedState, options);
     }

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
@@ -169,11 +170,13 @@ func (b *LightBlock) IntoHeader(trustedBlock LightBlock) updateClientContract.II
 
 	commitSigs := []updateClientContract.IICS07TendermintMsgsCommitSig{}
 	for _, sig := range b.SignedHeader.Commit.Signatures {
+		// CometBFT: 0=UNKNOWN, 1=ABSENT, 2=COMMIT, 3=NIL
+		// Solidity:  0=UNKNOWN, 1=ABSENT, 2=COMMIT, 3=NIL
 		commitSigs = append(commitSigs, updateClientContract.IICS07TendermintMsgsCommitSig{
 			Flag: uint8(sig.BlockIDFlag),
 			Data: updateClientContract.IICS07TendermintMsgsCommitSigData{
 				ValidatorAddress: sig.ValidatorAddress,
-				Timestamp:        big.NewInt(sig.Timestamp.Unix()),
+				Timestamp:        big.NewInt(sig.Timestamp.UnixNano()),
 				HasSignature:     sig.Signature != nil,
 				Signature:        sig.Signature,
 			},
@@ -213,8 +216,8 @@ func (b *LightBlock) IntoHeader(trustedBlock LightBlock) updateClientContract.II
 				},
 				ChainId:        b.SignedHeader.ChainID,
 				Height:         uint64(b.BlockHeight),
-				Time:           big.NewInt(b.SignedHeader.Time.Unix()),
-				HasLastBlockId: b.SignedHeader.LastBlockID.IsZero(),
+				Time:           big.NewInt(b.SignedHeader.Time.UnixNano()),
+				HasLastBlockId: !b.SignedHeader.LastBlockID.IsZero(),
 				LastBlockId: updateClientContract.IICS07TendermintMsgsBlockId{
 					HashData: bytesToBytes32(b.SignedHeader.LastBlockID.Hash),
 					PartSetHeader: updateClientContract.IICS07TendermintMsgsPartSetHeader{
@@ -362,7 +365,7 @@ func GetGenesis(client *rpchttp.HTTP, trustedBlock int64, trustingPeriod uint32,
 	}
 
 	consensusState := updateClientContract.IICS07TendermintMsgsConsensusState{
-		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixMilli()),
+		Timestamp:          big.NewInt(trustedLightBlock.SignedHeader.Header.Time.UnixNano()),
 		Root:               bytesToBytes32(trustedLightBlock.SignedHeader.Header.AppHash),
 		NextValidatorsHash: bytesToBytes32(trustedLightBlock.SignedHeader.NextValidatorsHash),
 	}
@@ -699,6 +702,31 @@ func EncodeClientState(clientState updateClientContract.IICS07TendermintMsgsClie
 	}
 	encoded, err := args.Pack(clientState)
 	return encoded, err
+}
+
+func DecodeClientState(data []byte) (updateClientContract.IICS07TendermintMsgsClientState, error) {
+	args := abi.Arguments{
+		{Type: clientStateType},
+	}
+	unpacked, err := args.Unpack(data)
+	if err != nil {
+		return updateClientContract.IICS07TendermintMsgsClientState{}, fmt.Errorf("unpack: %w", err)
+	}
+	if len(unpacked) == 0 {
+		return updateClientContract.IICS07TendermintMsgsClientState{}, fmt.Errorf("no data unpacked")
+	}
+	// unpacked[0] is an anonymous struct matching the tuple.
+	// Use JSON roundtrip to convert to the named target type,
+	// since args.Copy maps the tuple to the first field instead of the struct itself.
+	jsonBytes, err := json.Marshal(unpacked[0])
+	if err != nil {
+		return updateClientContract.IICS07TendermintMsgsClientState{}, fmt.Errorf("marshal unpacked tuple: %w", err)
+	}
+	var clientState updateClientContract.IICS07TendermintMsgsClientState
+	if err := json.Unmarshal(jsonBytes, &clientState); err != nil {
+		return updateClientContract.IICS07TendermintMsgsClientState{}, fmt.Errorf("unmarshal to client state: %w", err)
+	}
+	return clientState, nil
 }
 
 func EncodeConsensusState(consensusState updateClientContract.IICS07TendermintMsgsConsensusState) ([]byte, error) {

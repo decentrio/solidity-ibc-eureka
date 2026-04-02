@@ -47,6 +47,7 @@ contract WrapperVerifier is IVerifier {
         bytes32 pubkey,
         bytes calldata message
     ) external override returns (bool) {
+        // SHA-512 input uses raw Ed25519 little-endian bytes — correct as-is
         bytes32 R = signature[0];
         bytes memory hashData = new bytes(64 + message.length);
         assembly ("memory-safe") {
@@ -56,11 +57,19 @@ contract WrapperVerifier is IVerifier {
         }
 
         uint256[2] memory hashResult = sha512(hashData);
-        uint256 H = red512Modq(hashResult);
-        uint256 S = uint256(signature[1]);
-        // to do: call verify contract
-        (uint256 rX, uint256 rY) = decodePoint(uint256(R));
-        (uint256 aX, uint256 aY) = decodePoint(uint256(pubkey));
+        // Ed25519 (RFC 8032) interprets SHA-512 output as 512-bit little-endian integer.
+        // Reverse each 256-bit half and swap to get LE interpretation.
+        uint256 lo = reverseBytes(hashResult[0]); // first 32 SHA bytes reversed = low 256 bits
+        uint256 hi = reverseBytes(hashResult[1]); // last 32 SHA bytes reversed = high 256 bits
+        uint256 H = red512Modq([hi, lo]);
+
+        // Ed25519 encodes scalars and points as little-endian bytes.
+        // Solidity bytes32→uint256 is big-endian. Reverse to get correct values.
+        uint256 S = reverseBytes(uint256(signature[1]));
+
+        // Decompress Ed25519 points (returns Edwards coordinates to match Go prover)
+        (uint256 rX, uint256 rY) = decodePoint(reverseBytes(uint256(R)));
+        (uint256 aX, uint256 aY) = decodePoint(reverseBytes(uint256(pubkey)));
 
         uint256[24] memory publicInputs;
         uint256 offset = 0;
@@ -90,19 +99,21 @@ contract WrapperVerifier is IVerifier {
         uint256 offset,
         uint256 x
     ) internal pure returns (uint256) {
-        out[offset + 0] = (x >> 96) & 0xffffffff;
-        out[offset + 1] = (x >> 64) & 0xffffffff;
-        out[offset + 2] = (x >> 32) & 0xffffffff;
-        out[offset + 3] = x & 0xffffffff;
+        out[offset + 0] = x & 0xffffffffffffffff;
+        out[offset + 1] = (x >> 64) & 0xffffffffffffffff;
+        out[offset + 2] = (x >> 128) & 0xffffffffffffffff;
+        out[offset + 3] = (x >> 192) & 0xffffffffffffffff;
         return offset + 4;
     }
 
     function decodePoint(
         uint256 compressedPoint
-    ) internal returns (uint256 xWeirstrass, uint256 yWeirstrass) {
+    ) internal returns (uint256 xEdwards, uint256 yEdwards) {
         uint256 signBit = compressedPoint >> 255;
-        uint256 yTwisted = compressedPoint & mask;
+        uint256 yTwisted = compressedPoint & ~mask;
 
+        // Twisted Edwards curve: -x^2 + y^2 = 1 + d*x^2*y^2
+        // Solve for x^2: x^2 = (y^2 - 1) / (d*y^2 + 1)
         uint256 y2 = mulmod(yTwisted, yTwisted, p);
         uint256 x2 = mulmod(
             addmod(y2, a, p),
@@ -114,31 +125,27 @@ contract WrapperVerifier is IVerifier {
             xTwisted = p - xTwisted;
         }
 
-        xWeirstrass = mulmod(
-            addmod(
-                addmod(mulmod(5, a, p), mulmod(a, yTwisted, p), p),
-                p - addmod(mulmod(5, mulmod(d, yTwisted, p), p), d, p),
-                p
-            ),
-            pModInv(addmod(12, p - mulmod(12, yTwisted, p), p)),
-            p
-        );
+        // Return Edwards coordinates (matching Go prover's utils.DecompressPoint)
+        return (xTwisted, yTwisted);
+    }
 
-        yWeirstrass = mulmod(
-            addmod(
-                addmod(a, mulmod(a, yTwisted, p), p),
-                p - addmod(mulmod(d, yTwisted, p), d, p),
-                p
-            ),
-            pModInv(
-                addmod(
-                    mulmod(4, xTwisted, p),
-                    p - mulmod(mulmod(4, yTwisted, p), yTwisted, p),
-                    p
-                )
-            ),
-            p
-        );
+    /// @notice Reverse the byte order of a 256-bit value (convert between LE and BE).
+    function reverseBytes(uint256 v) internal pure returns (uint256) {
+        // Swap bytes pairwise
+        v = ((v & 0xFF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00) >> 8) |
+            ((v & 0x00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF) << 8);
+        // Swap 2-byte pairs
+        v = ((v & 0xFFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000) >> 16) |
+            ((v & 0x0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF0000FFFF) << 16);
+        // Swap 4-byte pairs
+        v = ((v & 0xFFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000) >> 32) |
+            ((v & 0x00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF00000000FFFFFFFF) << 32);
+        // Swap 8-byte pairs
+        v = ((v & 0xFFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF0000000000000000) >> 64) |
+            ((v & 0x0000000000000000FFFFFFFFFFFFFFFF0000000000000000FFFFFFFFFFFFFFFF) << 64);
+        // Swap 16-byte halves
+        v = (v >> 128) | (v << 128);
+        return v;
     }
 
     function red512Modq(uint256[2] memory val) public pure returns (uint256) {
@@ -197,7 +204,7 @@ contract WrapperVerifier is IVerifier {
             //  result :=addmod(result,0,p)
         }
         if (mulmod(result, result, p) != self) {
-            result = mulmod(result, result, sqrtm1);
+            result = mulmod(result, sqrtm1, p);
         }
         if (mulmod(result, result, p) != self) {
             revert();
@@ -460,25 +467,29 @@ contract WrapperVerifier is IVerifier {
         for (uint256 j = 0; j < 8; ++j) {
             temp[j] = h[j];
         }
-        for (uint256 j = 0; j < 80; ++j) {
-            uint64 t1 = temp[7] +
-                sigma1(temp[4]) +
-                ch(temp[4], temp[5], temp[6]) +
-                k[j] +
-                w[j];
-            uint64 t2 = sigma0(temp[0]) + maj(temp[0], temp[1], temp[2]);
+        // SHA-512 requires wrapping uint64 arithmetic; unchecked does NOT
+        // propagate from the caller (sha2), so it must be declared here.
+        unchecked {
+            for (uint256 j = 0; j < 80; ++j) {
+                uint64 t1 = temp[7] +
+                    sigma1(temp[4]) +
+                    ch(temp[4], temp[5], temp[6]) +
+                    k[j] +
+                    w[j];
+                uint64 t2 = sigma0(temp[0]) + maj(temp[0], temp[1], temp[2]);
 
-            temp[7] = temp[6];
-            temp[6] = temp[5];
-            temp[5] = temp[4];
-            temp[4] = temp[3] + t1;
-            temp[3] = temp[2];
-            temp[2] = temp[1];
-            temp[1] = temp[0];
-            temp[0] = t1 + t2;
-        }
-        for (uint256 j = 0; j < 8; ++j) {
-            h[j] += temp[j];
+                temp[7] = temp[6];
+                temp[6] = temp[5];
+                temp[5] = temp[4];
+                temp[4] = temp[3] + t1;
+                temp[3] = temp[2];
+                temp[2] = temp[1];
+                temp[1] = temp[0];
+                temp[0] = t1 + t2;
+            }
+            for (uint256 j = 0; j < 8; ++j) {
+                h[j] += temp[j];
+            }
         }
     }
 

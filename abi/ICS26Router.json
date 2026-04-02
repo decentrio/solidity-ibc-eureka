@@ -91,26 +91,9 @@
             "internalType": "bytes"
           },
           {
-            "name": "proofAcked",
+            "name": "membershipMsg",
             "type": "bytes",
             "internalType": "bytes"
-          },
-          {
-            "name": "proofHeight",
-            "type": "tuple",
-            "internalType": "struct IICS02ClientMsgs.Height",
-            "components": [
-              {
-                "name": "revisionNumber",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "revisionHeight",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
           }
         ]
       }
@@ -515,26 +498,9 @@
             ]
           },
           {
-            "name": "proofCommitment",
+            "name": "membershipMsg",
             "type": "bytes",
             "internalType": "bytes"
-          },
-          {
-            "name": "proofHeight",
-            "type": "tuple",
-            "internalType": "struct IICS02ClientMsgs.Height",
-            "components": [
-              {
-                "name": "revisionNumber",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "revisionHeight",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
           }
         ]
       }
@@ -705,26 +671,9 @@
             ]
           },
           {
-            "name": "proofTimeout",
+            "name": "nonMembershipMsg",
             "type": "bytes",
             "internalType": "bytes"
-          },
-          {
-            "name": "proofHeight",
-            "type": "tuple",
-            "internalType": "struct IICS02ClientMsgs.Height",
-            "components": [
-              {
-                "name": "revisionNumber",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "revisionHeight",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
           }
         ]
       }

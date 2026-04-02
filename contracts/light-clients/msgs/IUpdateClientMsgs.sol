@@ -10,6 +10,13 @@ import { IICS02ClientMsgs } from "../../msgs/IICS02ClientMsgs.sol";
 /// @notice Defines shared types for the update client program.
 interface IUpdateClientMsgs {
     /// @notice The message that is submitted to the updateClient function.
+    /// @param clientState The client state.
+    /// @param trustedConsensusState The trusted consensus state.
+    /// @param proposedHeader The proposed header with validator signatures.
+    /// @param time The current time in unix nanoseconds.
+    /// @param proof The Groth16 proof for Ed25519 signature verification (8 uint256s).
+    /// @param commitments The proof commitments (2 uint256s).
+    /// @param commitmentPok The proof of knowledge for commitments (2 uint256s).
     struct MsgUpdateClient {
         IICS07TendermintMsgs.ClientState clientState;
         IICS07TendermintMsgs.ConsensusState trustedConsensusState;

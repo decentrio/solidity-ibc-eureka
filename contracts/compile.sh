@@ -1,5 +1,8 @@
 #!/bin/bash
 
+ENCODE_LIB_PLACEHOLDER='__$e6bc332d3f714b58adb39753770f09750e$__'
+ENCODE_LIB_ADDR="b4b46bdaa835f8e4b4d8e208b6559cd267851051"
+
 function create_binding {
     contract_dir=$1
     contract=$2
@@ -9,6 +12,9 @@ function create_binding {
     contract_json="../out/${contract}.sol/${contract}.json"
     solc_abi=$(cat ${contract_json} | jq -r '.abi')
     solc_bin=$(cat ${contract_json} | jq -r '.bytecode.object')
+
+    # Link Encode library placeholder with deployed address
+    solc_bin="${solc_bin//$ENCODE_LIB_PLACEHOLDER/$ENCODE_LIB_ADDR}"
 
     mkdir -p data
     echo ${solc_abi} > data/tmp.abi
